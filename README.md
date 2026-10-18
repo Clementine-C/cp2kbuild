@@ -1,5 +1,7 @@
 # cp2kbuild — CP2K 输入文件生成 / 收敛 / 校验工具
 
+[![selftest](https://github.com/Clementine-C/cp2kbuild/actions/workflows/selftest.yml/badge.svg)](https://github.com/Clementine-C/cp2kbuild/actions/workflows/selftest.yml)
+
 一个纯 Python（零第三方依赖）的 CP2K 输入文件工具链：
 
 - **生成**：从结构文件（xyz / pdb / POSCAR / cif / 已有 .inp / 上次运行写出的 `-1.restart`）一键生成完整可运行的 `.inp`
@@ -20,6 +22,10 @@ python -m cp2kbuild --version          :: 控制台版，不需要装任何东�
 pip install -e ".[gui]"                :: 要窗口版才装 PySide6
 python -m cp2kbuild gui                :: 装完也可以直接 cp2kbuild-gui
 ```
+
+**不想装 Python**：从 [Releases](https://github.com/Clementine-C/cp2kbuild/releases)
+下载 `cp2kbuild-gui-2026.2.exe`（免安装窗口版，双击即用）或 `cp2kbuild-2026.2.exe`
+（命令行版）。两个都自带 `--selftest report.json` 可以自检。
 
 仓库里不带 `dist/*.exe`（打包产物，用 `python packaging/build_exe.py` 自己生成）；
 `cp2kbuild/data/manual_db_2026_2.json`（26 MB 的手册库）是带上的，没有它就只能做
