@@ -1,0 +1,55 @@
+# ---- build artefacts (regenerate with packaging/build_exe.py) ----
+build/
+dist/
+*.spec
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- local verification scratch ----
+# _audit_tmp/ holds one-off probes, _plumed_verify/ a scratch PLUMED tree; neither
+# is part of the tool
+_audit_tmp/
+_plumed_verify/
+
+# ---- generated example output (tools/make_examples.py, tools/selftest.py) ----
+examples/from_existing_template/
+examples/yqw_cutoff_test/
+examples/generated/_tmp_*
+
+# ---- GUI screenshots (packaging/screenshot.py writes them) ----
+# kept in the repository on purpose: they show what the interface looks like
+# packaging/shots/
+
+# ---- files a manual experiment leaves in the working directory ----
+--help
+gui_report.json
+run_program.log
+*.log
+water.inp
+silicon.inp
+cp2k.inp
+*.restart
+*.wfn
+HILLS
+COLVAR
+go.sh
+stop.sh
+stop_program.sh
+start_program.sh
+resume_stage.sh
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+# ---- the manual database ----
+# manual_db_2026_2.json is included (26 MB, needed at run time); the older one is
+# optional - rebuild either with python tools/build_db.py --src <cp2k>/src.
+cp2kbuild/data/manual_db_2025_1.json

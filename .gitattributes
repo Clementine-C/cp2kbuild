@@ -1,0 +1,13 @@
+# Keep the line endings this project relies on.
+#
+# The generator writes every CP2K input, shell script and .ssv table with LF (a
+# CRLF shebang is "command not found" on the cluster), so the repository stores
+# text as LF and checks it out as LF - on Windows too.  Only the .cmd launcher
+# keeps CRLF, because cmd.exe is happiest with it.
+* text=auto eol=lf
+*.cmd text eol=crlf
+
+# Data files: no diff noise, no conversion.
+*.json binary
+*.png  binary
+*.exe  binary

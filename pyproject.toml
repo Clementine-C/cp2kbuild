@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cp2kbuild"
+version = "0.1.0"
+description = "Write, converge and check CP2K input files"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "cp2kbuild" }]
+keywords = ["cp2k", "dft", "input", "generator", "linter"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.5"]
+dev = ["pytest", "pyinstaller"]
+
+[project.scripts]
+cp2kbuild = "cp2kbuild.cli:main"
+
+[project.gui-scripts]
+cp2kbuild-gui = "cp2kbuild.gui:main"
+
+[tool.setuptools]
+packages = ["cp2kbuild"]
+
+[tool.setuptools.package-data]
+cp2kbuild = ["data/*.json"]

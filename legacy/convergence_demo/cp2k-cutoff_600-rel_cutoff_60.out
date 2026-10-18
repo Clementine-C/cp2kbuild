@@ -1,0 +1,22 @@
+ CP2K| version string:                                     CP2K
+  ****  ****  ****  ****  ****  ****  ****  ****  ****  ****  ***
+ DBCSR| CPU Multiplication driver  :BLAS
+ QS| Method:                                                                 GPW
+ QS| Number of grid levels:                                                    4
+ QS| Density cutoff [a.u.]:                                                300.0
+ QS| Relative density cutoff [a.u.]:                                        30.0
+ QS| Multi grid cutoff [a.u.]: 1) grid level                            300.0
+ QS| Multi grid cutoff [a.u.]: 2) grid level                            100.0
+ QS| Multi grid cutoff [a.u.]: 3) grid level                             33.3
+ QS| Multi grid cutoff [a.u.]: 4) grid level                             11.1
+
+ count for grid        1:          430          cutoff [a.u.]         300.00
+ count for grid        2:         3860          cutoff [a.u.]         100.00
+ count for grid        3:         9200          cutoff [a.u.]          33.33
+ count for grid        4:        16100          cutoff [a.u.]          11.11
+
+  Total energy:                                                      -17.15962558471810
+
+ ENERGY| Total FORCE_EVAL ( QS ) energy [a.u.]              -17.159625584718100
+  ****  ****  ****  ****  ****  ****  ****  ****  ****  ****  ***
+ PROGRAM ENDED AT 2026-09-13 22:00:00
