@@ -1,0 +1,102 @@
+# 两道门：不需要 CP2K 的快速冒烟，以及带上 CP2K 的 data/ 之后跑真正的自测。
+#
+# 为什么不跑 packaging/gui_selftest.py：它要 PySide6 + 一个离屏 Qt，跑起来是分钟级，
+# 还会用到 CP2K 的 data/；界面与命令行逐字节等价那 73 组比对在开发机上跑。
+# 这里守的是：能不能生成、手册库能不能读、坏输入会不会被拒、纯文本那几段自测过不过。
+name: selftest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: 冒烟（不需要 CP2K）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 语法（compileall）
+        run: python -m compileall -q cp2kbuild tools packaging
+
+      - name: 手册库能读、版本对
+        run: |
+          python -m cp2kbuild --version
+          python -m cp2kbuild db --stats
+          python -m cp2kbuild keyword CUTOFF | head -n 12
+
+      - name: 七个任务都能生成输入
+        run: |
+          # water.xyz 没有晶胞，所以给一个 12 Å 真空层（否则 periodic-without-cell 是错误）
+          for task in energy geo_opt cell_opt md freq; do
+            echo "--- $task"
+            python -m cp2kbuild new --task "$task" \
+              --structure examples/water.xyz --vacuum 12 --stdout > /dev/null
+          done
+          for task in band pdos; do
+            echo "--- $task"
+            python -m cp2kbuild new --task "$task" \
+              --structure examples/silicon.xyz --stdout > /dev/null
+          done
+
+      - name: 不完整的 NEB 输入必须被指出（只有结构 + 镜像数，缺每个镜像的坐标）
+        run: |
+          if python -m cp2kbuild new --task neb --structure examples/water.xyz \
+               --replicas 3 --vacuum 12 --stdout > /dev/null 2>&1; then
+            echo "缺镜像坐标的 NEB 居然被当成完整输入" >&2
+            exit 1
+          fi
+
+      - name: 故意写坏的输入必须被拒（退出码非 0）
+        run: |
+          cat > /tmp/broken.inp <<'EOF'
+          &GLOBAL
+             RUN_TYPE GEO_OPT
+          &END GLOBAL
+          &FORCE_EVAL
+             METHOD QUICKSTEP
+             &SUBSYS
+               &COORD
+                 O 0.0 0.0 0.0
+               &END COORD
+             &END SUBSYS
+          &END FORCE_EVAL
+          EOF
+          if python -m cp2kbuild validate /tmp/broken.inp > /dev/null 2>&1; then
+            echo "坏输入居然通过了校验" >&2
+            exit 1
+          fi
+
+      - name: 自测：裁剪脚本 + 温度程序（纯文本，不需要 CP2K）
+        run: python tools/selftest.py --skip-part1 --skip-part2 --skip-part4
+
+  with-data:
+    name: 自测（带 CP2K 的 data/）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 取 CP2K 的 data/（只这一个目录）
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/cp2k/cp2k.git cp2k-src
+          git -C cp2k-src sparse-checkout set data
+          ls cp2k-src/data | head -n 5
+
+      - name: 自测：第 1 / 1b / 3 / 5 段（CP2K 源码树不在这里，那几处会跳过）
+        run: |
+          python tools/selftest.py --limit 200 --skip-part2 --skip-part4 \
+            --data-dir cp2k-src/data
