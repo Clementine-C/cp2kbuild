@@ -6,10 +6,24 @@
 - **图形界面**：PySide6 写的六页签窗口，参数一改右侧预览立刻重算；可打包成免安装 exe
 - **自动配基组与赝势**：扫描本机 CP2K 的 `data/` 目录，按**价电子数（`-qN`）匹配**选取基组和赝势
 - **收敛测试**：写出 CP2K 官方教程那套 CUTOFF / REL_CUTOFF 脚本（`template.inp` + 6 个 `sh`），模板可以由工具从当前参数现场生成，也可以直接用你已有的 `.inp`（`template.inp` 里的 `RUN_TYPE` 一定是 `ENERGY`）；跑和看结果都在服务器上
-- **校验**：内置手册数据库（当前默认 CP2K **2026.2**：2843 个 section、25962 个关键字；也保留 2025.1 的库），可以校验生成的输入，**也可以校验你自己手写的 `.inp`**
+- **校验**：内置手册数据库（CP2K **2026.2**：2843 个 section、25962 个关键字），可以校验生成的输入，**也可以校验你自己手写的 `.inp`**（仓库里带的就是这一份；想换 2025.1 等其他版本，用 `python tools/build_db.py --src <cp2k>/src` 自己生成一份放进 `cp2kbuild/data/`）
 - **离线手册查询**：`cp2kbuild keyword`，不用开浏览器
 
 核心部分零第三方依赖（只用标准库，Python ≥ 3.9）；只有图形界面需要 PySide6。
+
+### 拿到代码
+
+```bat
+git clone https://github.com/Clementine-C/cp2kbuild.git
+cd cp2kbuild
+python -m cp2kbuild --version          :: 控制台版，不需要装任何东西
+pip install -e ".[gui]"                :: 要窗口版才装 PySide6
+python -m cp2kbuild gui                :: 装完也可以直接 cp2kbuild-gui
+```
+
+仓库里不带 `dist/*.exe`（打包产物，用 `python packaging/build_exe.py` 自己生成）；
+`cp2kbuild/data/manual_db_2026_2.json`（26 MB 的手册库）是带上的，没有它就只能做
+物理一致性检查，查不了手册。
 
 ---
 
