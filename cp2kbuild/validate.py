@@ -233,7 +233,7 @@ class Validator:
         A CP2K test suite ships its own ``BASIS_SET`` next to the input, so a
         name that is absent from <cp2k>/data proves nothing about availability.
         """
-        if self.index is None or self.index.directory is None or dft is None:
+        if self.index is None or not self.index.entries or dft is None:
             return False
         known_basis = {name.upper() for name in self.index.basis_files}
         known_potential = {name.upper() for name in self.index.potential_files}
@@ -1479,7 +1479,7 @@ class Validator:
         basis_name = _basis_name_of(basis)
         potential_name = _basis_name_of(potential) if potential is not None else None
 
-        if self.index is None or self.index.directory is None:
+        if self.index is None or not self.index.entries:
             return
         if not self._files_verified:
             if not self._unverified_noted:
@@ -1505,26 +1505,39 @@ class Validator:
                                             and has_preprocessor(potential_name)):
             return
 
+        # The bundled index knows one CP2K version's data files, not the user's:
+        # a name missing from it may simply be older/newer, so that is a warning
+        # with the way out; with a real data/ directory it is a genuine error.
+        could_be_version = self.index.bundled
+        source = self.index.source_label
+        level = "warning" if could_be_version else "error"
+        version_note = ("（名单来自内置索引，本机没有 data/ 目录："
+                        "版本不同的话可能只是差异）" if could_be_version else "")
         if not self.index.has_entry("basis", basis_name, element):
             available = self.index.names_for("basis", element)
             self._add(
-                "error", "basis-unavailable",
+                level, "basis-unavailable",
                 f"基组 {basis_name!r} 对 {element} 不存在"
-                f"（在 {self.index.directory} 里找不到）",
+                f"（{source} 里找不到）{version_note}",
                 path="CP2K_INPUT/FORCE_EVAL/SUBSYS/KIND",
                 hint=(f"{element} 可用的基组：{', '.join(available[:12])}"
-                      if available else f"这个数据目录里根本没有 {element} 的基组"),
+                      if available else f"{source} 里根本没有 {element} 的基组")
+                     + ("；用 --data-dir <cp2k>/data 指定本机的数据目录，"
+                        "这条就会按你的版本核对" if could_be_version else ""),
             )
         if potential_name is None:
             return
         if not self.index.has_entry("potential", potential_name, element):
             available = self.index.names_for("potential", element)
             self._add(
-                "error", "potential-unavailable",
-                f"赝势 {potential_name!r} 对 {element} 不存在",
+                level, "potential-unavailable",
+                f"赝势 {potential_name!r} 对 {element} 不存在"
+                f"（{source} 里找不到）{version_note}",
                 path="CP2K_INPUT/FORCE_EVAL/SUBSYS/KIND",
                 hint=(f"{element} 可用的赝势：{', '.join(available[:12])}"
-                      if available else f"这个数据目录里根本没有 {element} 的赝势"),
+                      if available else f"{source} 里根本没有 {element} 的赝势")
+                     + ("；用 --data-dir <cp2k>/data 指定本机的数据目录，"
+                        "这条就会按你的版本核对" if could_be_version else ""),
             )
             return
         basis_valence = self.index.valence("basis", basis_name, element)
@@ -1534,7 +1547,8 @@ class Validator:
             self._add(
                 "error", "valence-mismatch",
                 f"{element}：基组 {basis_name} 是 q{basis_valence}，"
-                f"而赝势 {potential_name} 是 q{potential_valence}",
+                f"而赝势 {potential_name} 是 q{potential_valence}"
+                + (f"（按{source}）" if could_be_version else ""),
                 path="CP2K_INPUT/FORCE_EVAL/SUBSYS/KIND",
                 hint="CP2K 会中止（`Mismatch in the number of electrons`）："
                      "基组和赝势要选 -qN 后缀相同的",
@@ -1569,7 +1583,7 @@ class Validator:
             element, potential = kinds.get(
                 key, (canonical_element(keyword.name) or keyword.name, None))
             valence = None
-            if potential and self.index is not None and self.index.directory:
+            if potential and self.index is not None and self.index.entries:
                 valence = self.index.valence("potential", potential, element)
                 if valence is None and "ALLELECTRON" in potential.upper():
                     valence = atomic_number(element)

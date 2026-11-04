@@ -43,7 +43,14 @@ def newest_database() -> Path:
     return candidates[-1]
 
 
+def newest_index() -> Path | None:
+    """The bundled basis-set index (``index_<ver>.json``), if it was generated."""
+    candidates = sorted(DATA_DIR.glob("index_*.json"))
+    return candidates[-1] if candidates else None
+
+
 DATABASE = newest_database()
+BASIS_INDEX = newest_index()
 
 # Qt modules this application never imports; excluding them keeps the
 # executable (and the one-file unpacking step) noticeably smaller
@@ -74,6 +81,7 @@ def run(command: list[str]) -> None:
 
 
 def pyinstaller_base(name: str, entry: Path, console: bool) -> list[str]:
+    separator = ";" if sys.platform == "win32" else ":"
     command = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean", "--onefile",
@@ -82,9 +90,13 @@ def pyinstaller_base(name: str, entry: Path, console: bool) -> list[str]:
         "--distpath", str(DIST),
         "--workpath", str(BUILD / name),
         "--specpath", str(BUILD),
-        "--add-data", f"{DATABASE}{';' if sys.platform == 'win32' else ':'}data",
+        "--add-data", f"{DATABASE}{separator}data",
         "--console" if console else "--windowed",
     ]
+    if BASIS_INDEX is not None:
+        # names + elements + valences only (no CP2K parameters): this is what lets
+        # the exe check basis/potential names on a machine with no CP2K installed
+        command += ["--add-data", f"{BASIS_INDEX}{separator}data"]
     icon = PACKAGING / "icon.ico"
     if icon.is_file():
         command += ["--icon", str(icon)]

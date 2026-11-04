@@ -3381,6 +3381,80 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
         print(f"  FAIL U/q11 配对不对：{uranium.assignments['U'].potential} "
               f"{uranium.problems}")
 
+    # (6b) the bundled index: with no CP2K data/ directory at all, the names and
+    #      valences still come from cp2kbuild/data/index_<version>.json - so
+    #      "does this basis exist for that element, with the same q as the
+    #      potential" keeps working on a machine without CP2K installed
+    from cp2kbuild.datafiles import DataIndex as _DataIndex
+
+    bundled = _DataIndex(None)
+    if (bundled.bundled and bundled.cp2k and len(bundled.entries) > 10000
+            and bundled.has_entry("basis", "DZVP-MOLOPT-SR-GTH", "H")
+            and bundled.valence("basis", "DZVP-MOLOPT-SR-GTH", "H") == 1
+            and bundled.has_entry("potential", "GTH-PBE", "H")      # via the alias
+            and bundled.valence("potential", "GTH-PBE", "H") == 1
+            and bundled.file_for("basis", "DZVP-MOLOPT-SR-GTH", "H") == "BASIS_MOLOPT"
+            and bundled.names_for("basis", "Fe")):
+        print(f"  ok   内置索引（CP2K {bundled.cp2k}）：{len(bundled.entries)} 条，"
+              "名字/别名/价电子数/所在文件都对得上")
+    else:
+        failures += 1
+        print(f"  FAIL 内置索引不对：bundled={bundled.bundled} cp2k={bundled.cp2k!r} "
+              f"entries={len(bundled.entries)}")
+    # a directory that does not exist must fall back to the index, not to "no data"
+    missing = _DataIndex(Path(tempfile.gettempdir()) / "cp2kbuild-no-such-data-dir")
+    if (missing.bundled and missing.entries
+            and any("data directory not found" in warning
+                    for warning in missing.warnings)):
+        print("  ok   指错的 data 目录会退回内置索引，并留一条警告")
+    else:
+        failures += 1
+        print(f"  FAIL 指错目录没有退回内置索引：{missing.bundled} "
+              f"{len(missing.entries)} {missing.warnings[:1]}")
+    # ... and the two severities: a name missing from the *bundled* index is a
+    # warning (the user's CP2K may be another version), from a scanned directory
+    # it stays an error.  A basis/potential valence mismatch is an error in both.
+    from cp2kbuild.parser import parse_input as _parse_input
+
+    pair_text = (
+        "&GLOBAL\n  PROJECT_NAME t\n  RUN_TYPE ENERGY\n&END GLOBAL\n"
+        "&FORCE_EVAL\n  METHOD QUICKSTEP\n"
+        "  &DFT\n    BASIS_SET_FILE_NAME BASIS_MOLOPT\n"
+        "    POTENTIAL_FILE_NAME GTH_POTENTIALS\n"
+        "    &MGRID\n      CUTOFF 400\n    &END MGRID\n"
+        "  &END DFT\n"
+        "  &SUBSYS\n    &CELL\n      ABC 10 10 10\n    &END CELL\n"
+        "    &COORD\n      O 0 0 0\n    &END COORD\n"
+        "    &KIND O\n      BASIS_SET DZVP-MOLOPT-SR-GTH\n"
+        "      POTENTIAL %s\n    &END KIND\n"
+        "  &END SUBSYS\n&END FORCE_EVAL\n")
+
+    def pair_rows(index_for, potential):
+        sections = _parse_input(pair_text % potential).sections
+        return [(d.level, d.code, d.message) for d in Validator(None, index_for)
+                .run(sections)
+                if d.code in ("basis-unavailable", "potential-unavailable",
+                              "valence-mismatch")]
+
+    bundled_wrong = pair_rows(bundled, "GTH-PBE-q1")
+    bundled_mismatch = pair_rows(bundled, "GTH-MPC-PBE-q8")
+    if (bundled_wrong and bundled_wrong[0][0] == "warning"
+            and "内置索引" in bundled_wrong[0][2]
+            and bundled_mismatch and bundled_mismatch[0][0] == "error"
+            and "按内置索引" in bundled_mismatch[0][2]):
+        print("  ok   按内置索引核对：名字对不上是「警告」（版本可能不同），"
+              "基组/赝势价电子数不一致仍是「错误」")
+    else:
+        failures += 1
+        print(f"  FAIL 内置索引的等级不对：{bundled_wrong} / {bundled_mismatch}")
+    if index.directory and not index.bundled:
+        real_wrong = pair_rows(index, "GTH-PBE-q1")
+        if real_wrong and real_wrong[0][0] == "error":
+            print("  ok   有真的 data 目录时，同一条仍然是「错误」（按你的版本核对）")
+        else:
+            failures += 1
+            print(f"  FAIL 真目录下反而不是错误：{real_wrong}")
+
     # (7) CP2K's separators: "FILENAME =RESTART" is the value RESTART (not
     #     "=RESTART"), "1/3,2/3; 1/3,1/3" is six numbers, and a bare "F" is the
     #     element fluorine, not a boolean

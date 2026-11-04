@@ -379,9 +379,11 @@ def choose_assignments(
     functional_key = (functional or "PBE").upper().replace("-", "").replace("_", "")
     stem = FUNCTIONAL_POTENTIAL.get(functional_key, "GTH-PBE")
 
-    if index.directory is None:
+    if not index.entries:
+        # no scanned data/ directory *and* no bundled index - only possible if the
+        # package was built without cp2kbuild/data/index_*.json
         setup.problems.append(
-            "没有 CP2K 数据目录：基组和赝势无法核对。"
+            "既没有 CP2K 数据目录，也没有内置的基组索引：基组和赝势无法核对。"
             "用 --data-dir <cp2k>/data（或设 CP2K_DATA_DIR）指给它"
         )
         for element in elements:

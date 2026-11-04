@@ -76,8 +76,10 @@ jobs:
             exit 1
           fi
 
-      - name: 自测：裁剪脚本 + 温度程序（纯文本，不需要 CP2K）
-        run: python tools/selftest.py --skip-part1 --skip-part2 --skip-part4
+      - name: 自测：第 1 / 1b / 3 / 5 段（不需要 CP2K —— 名字来自内置索引）
+        run: |
+          python tools/selftest.py --limit 400 --skip-part2 --skip-part4 \
+            --data-dir /tmp/there-is-no-cp2k-here
 
   with-data:
     name: 自测（带 CP2K 的 data/）

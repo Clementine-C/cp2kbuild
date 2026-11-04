@@ -2760,11 +2760,19 @@ def build(spec: Spec, index: DataIndex) -> BuildResult:
             basis_file_override=spec.basis_file,
             potential_file_override=spec.potential_file,
         )
-    if spec.data_path_style == "absolute" and index.directory:
-        setup.basis_files = [str(index.directory / f).replace("\\", "/")
-                             for f in setup.basis_files]
-        setup.potential_files = [str(index.directory / f).replace("\\", "/")
-                                 for f in setup.potential_files]
+    if spec.data_path_style == "absolute":
+        if index.directory:
+            setup.basis_files = [str(index.directory / f).replace("\\", "/")
+                                 for f in setup.basis_files]
+            setup.potential_files = [str(index.directory / f).replace("\\", "/")
+                                     for f in setup.potential_files]
+        else:
+            # the bundled index knows the *names* of the data files, not where they
+            # are, so there is no directory to prepend
+            setup.problems.append(
+                "要写数据文件的绝对路径，但没扫描到 CP2K 的 data 目录"
+                "（现在用的是内置的基组索引）：基组/赝势只写了文件名 —— "
+                "要么用 --data-dir <cp2k>/data 指一个目录，要么自己把路径补全")
 
     run_type = RUN_TYPE_OF.get(spec.task, "ENERGY")
     sections = [global_section(spec, run_type)]

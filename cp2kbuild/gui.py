@@ -668,6 +668,25 @@ def without_covered(diagnostics: list[Diagnostic], result: BuildResult
     return [item for item in diagnostics if item.code not in covered]
 
 
+#: QSettings key of the folder the user picked with 「文件 → 设置工作目录…」
+WORKDIR_KEY = "workdir"
+
+
+def configured_workdir(settings: QSettings | None) -> Path | None:
+    """The working directory from QSettings - or ``None`` if unset/gone.
+
+    A renamed or deleted folder counts as unset: file dialogs falling back to a
+    path that does not exist is exactly the kind of thing that looks broken.
+    """
+    if settings is None:
+        return None
+    stored = str(settings.value(WORKDIR_KEY, "") or "").strip()
+    if not stored:
+        return None
+    path = Path(stored)
+    return path if path.is_dir() else None
+
+
 def form_row(form: QFormLayout, key: str | None, label: str,
              widget: QWidget, badge: "HelpBadge | None" = None) -> QWidget:
     """Add a form row; a "?" badge appears next to the label when help exists."""
@@ -2627,6 +2646,11 @@ class GenerateTab(QWidget):
             remembered = self.settings.value(key, "")
             if remembered and Path(str(remembered)).is_dir():
                 return str(remembered)
+        # the folder the user set as the working directory wins over the "where did
+        # the last dialog end up" memory, so a fresh session starts in the project
+        work = configured_workdir(self.settings)
+        if work is not None:
+            return str(work)
         shared = self.settings.value("last_dir", "")
         if shared and Path(str(shared)).is_dir():
             return str(shared)
@@ -8330,6 +8354,25 @@ class DataTab(QWidget):
         if index is not None and index.directory:
             self.data_dir.setText(str(index.directory))
             self.scan()
+        elif index is not None:
+            self._show_bundled(index)
+
+    def _show_bundled(self, index: DataIndex) -> None:
+        """No ``data/`` directory: say which index the numbers come from."""
+        summary = index.summary()
+        if not index.entries:
+            self.summary.setText("没有找到数据目录，也没有内置的基组索引。"
+                                 "请手动指定 CP2K 的 data 目录。")
+            self.status.emit("没有基组数据")
+            return
+        self.summary.setText(
+            f"<b>没有扫描数据目录，正在用内置索引（CP2K {index.cp2k or '?'}）</b><br>"
+            f"基组条目 {summary['basis_entries']} 条、赝势 {summary['potential_entries']} 条，"
+            f"覆盖 {summary['elements_with_basis']} / "
+            f"{summary['elements_with_potential']} 种元素（名字与价电子数可核对）。<br>"
+            "<b>版本可能和集群上的 CP2K 不同</b>：想按自己那份 data/ 核对，"
+            "就把上面那格填成它的路径（或设 CP2K_DATA_DIR）。")
+        self.status.emit("使用内置的基组索引")
 
     def scan(self) -> None:
         path = self.data_dir.text().strip() or None
@@ -8341,7 +8384,11 @@ class DataTab(QWidget):
             QApplication.restoreOverrideCursor()
         summary = self.index.summary()
         if summary.get("directory") is None:
-            self.summary.setText("没有找到数据目录。请手动指定 CP2K 的 data 目录。")
+            # an empty/incorrect path also falls back to the bundled index; say so
+            # instead of a bare "没有找到数据目录"
+            self._show_bundled(self.index)
+            if self.index.warnings:
+                self.status.emit(self.index.warnings[-1])
             return
         self.summary.setText(
             f"<b>{summary['directory']}</b><br>"
@@ -8354,8 +8401,8 @@ class DataTab(QWidget):
         self.status.emit("数据目录扫描完成")
 
     def recommend(self) -> None:
-        if self.index is None or self.index.directory is None:
-            self.summary.setText("请先扫描一个数据目录。")
+        if self.index is None or not self.index.entries:
+            self.summary.setText("没有基组数据：先扫描一个 CP2K 的 data 目录。")
             return
         from .recommend import choose_assignments
 
@@ -8768,6 +8815,19 @@ class MainWindow(QMainWindow):
         save_action.setShortcut(QKeySequence.Save)
         save_action.triggered.connect(self.generate.save)
         file_menu.addAction(save_action)
+
+        file_menu.addSeparator()
+        workdir_action = QAction("设置工作目录…", self)
+        workdir_action.setShortcut(QKeySequence("Ctrl+Shift+W"))
+        workdir_action.triggered.connect(self.choose_workdir)
+        file_menu.addAction(workdir_action)
+        self.open_workdir_action = QAction("在工作目录中打开", self)
+        self.open_workdir_action.triggered.connect(self.open_workdir)
+        file_menu.addAction(self.open_workdir_action)
+        self.forget_workdir_action = QAction("清除工作目录", self)
+        self.forget_workdir_action.triggered.connect(self.forget_workdir)
+        file_menu.addAction(self.forget_workdir_action)
+
         file_menu.addSeparator()
         quit_action = QAction("退出", self)
         quit_action.setShortcut(QKeySequence.Quit)
@@ -8782,6 +8842,57 @@ class MainWindow(QMainWindow):
         about = QAction("关于", self)
         about.triggered.connect(self._about)
         help_menu.addAction(about)
+
+        # The working directory is a state you want to see without opening a menu:
+        # one permanent status-bar label, right of the usual hints.
+        self.workdir_label = QLabel()
+        self.workdir_label.setStyleSheet("color:#5d6d7e;")
+        self.statusBar().addPermanentWidget(self.workdir_label)
+        self.refresh_workdir()
+
+    # -- working directory -------------------------------------------------- #
+    def choose_workdir(self) -> None:
+        """「文件 → 设置工作目录…」: the folder dialogs start in and 打开 targets."""
+        current = configured_workdir(self.settings)
+        start = str(current) if current is not None else str(Path.home())
+        chosen = QFileDialog.getExistingDirectory(self, "设置工作目录", start)
+        if not chosen:
+            return
+        self.settings.setValue(WORKDIR_KEY, chosen)
+        # a chosen working directory is also where the *next* dialog should open,
+        # even for a field that remembers its own folder
+        self.settings.setValue("last_dir", chosen)
+        self.refresh_workdir()
+        self._status(f"工作目录：{chosen}（文件对话框从这里开始；保存对话框也默认放这里）")
+
+    def forget_workdir(self) -> None:
+        self.settings.remove(WORKDIR_KEY)
+        self.refresh_workdir()
+        self._status("工作目录已清除：文件对话框回到「上次用过的目录」")
+
+    def open_workdir(self) -> None:
+        work = configured_workdir(self.settings)
+        if work is None:
+            self._status("还没有设置工作目录（文件 → 设置工作目录…）")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(work)))
+
+    def refresh_workdir(self) -> None:
+        """Update the status-bar label and the two menu items."""
+        work = configured_workdir(self.settings)
+        stored = str(self.settings.value(WORKDIR_KEY, "") or "").strip()
+        if work is not None:
+            text = f"工作目录：{work}"
+        elif stored:
+            text = f"工作目录：{stored}（不存在了）"
+        else:
+            text = "工作目录：未设置"
+        self.workdir_label.setText(text)
+        self.workdir_label.setToolTip(
+            "文件 → 设置工作目录…（Ctrl+Shift+W）：所有文件对话框从这里开始，"
+            "「保存」也默认放在这里；每个字段上次用过的目录仍然优先")
+        self.open_workdir_action.setEnabled(work is not None)
+        self.forget_workdir_action.setEnabled(bool(stored))
 
     def _about(self) -> None:
         db = self.keyword_tab.db
@@ -8896,6 +9007,11 @@ def run_selftest(report_path: str) -> int:
         report["manual_db"] = db.stats() if db is not None else None
         index = window.generate.index
         report["data_directory"] = str(index.directory) if index and index.directory else None
+        report["data_index"] = {
+            "bundled": bool(index and index.bundled),
+            "cp2k": (index.cp2k if index else ""),
+            "entries": len(index.entries) if index else 0,
+        }
         report["basis_names"] = index.summary()["distinct_basis_names"] if index else 0
 
         generate = window.generate
@@ -9134,8 +9250,10 @@ def run_selftest(report_path: str) -> int:
         report["problems"].append("the interface never finished loading")
     if not report.get("manual_db"):
         report["problems"].append("the manual database was not found")
-    if not report.get("data_directory"):
-        report["problems"].append("no CP2K data directory was found")
+    if not report.get("data_directory") and not (report.get("data_index") or {}).get(
+            "entries"):
+        report["problems"].append(
+            "no CP2K data directory and no bundled basis-set index")
     if not report.get("cn_search_hits"):
         report["problems"].append("the Chinese search returned nothing")
     if not report.get("glossary_rendered"):

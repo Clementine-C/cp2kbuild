@@ -1746,9 +1746,18 @@ def open_index(data_dir: str | None) -> tuple[DataIndex, Path | None]:
     resolved = discover_data_dir(data_dir)
     index = DataIndex(resolved) if resolved else DataIndex(None)
     if resolved is None:
-        print("warning: no CP2K data directory found; basis sets and potentials "
-              "cannot be verified.\n         pass --data-dir <cp2k>/data or set "
-              "CP2K_DATA_DIR.", file=sys.stderr)
+        if index.entries:
+            # the names come from the bundled index: enough for the checks, but the
+            # user's own CP2K is what reads the files at run time
+            print(f"note: no CP2K data directory found; using the bundled index "
+                  f"(CP2K {index.cp2k or '?'}, {len(index.entries)} entries).",
+                  file=sys.stderr)
+            print("      pass --data-dir <cp2k>/data (or set CP2K_DATA_DIR) to check "
+                  "against your own data directory.", file=sys.stderr)
+        else:
+            print("warning: no CP2K data directory and no bundled index; basis sets "
+                  "and potentials cannot be verified.\n         pass --data-dir "
+                  "<cp2k>/data or set CP2K_DATA_DIR.", file=sys.stderr)
     return index, resolved
 
 
@@ -2115,7 +2124,10 @@ def cmd_info(args) -> int:
         # "directory" has neither and is always kept
         summary = {key: value for key, value in summary.items()
                    if kind in key or not ("basis" in key or "potential" in key)}
-    print("CP2K data directory")
+    print("CP2K basis-set / potential inventory")
+    if index.bundled:
+        print(f"  (内置索引 CP2K {index.cp2k or '?'}：只含名字与价电子数，"
+              "没有扫描本机 data/；用 --data-dir 指一个目录就能按你的版本核对)")
     for key, value in summary.items():
         if isinstance(value, list):
             print(f"  {key}: {', '.join(value) if value else '(none)'}")
@@ -2152,7 +2164,8 @@ def cmd_info(args) -> int:
     if args.target != "solid" or args.functional != "PBE":
         print("\nnote: --target/--functional 只在 --elements 时才起作用"
               "（比如 info --elements Fe,O --target accurate）。")
-    print("\nfiles present in the data directory:")
+    print("\nfiles present in the data directory:"
+          + ("（内置索引里的文件名）" if index.bundled else ""))
     if kind in ("all", "basis"):
         print(f"  basis    ({len(index.basis_files)}): "
               f"{', '.join(index.basis_files[:8])}"

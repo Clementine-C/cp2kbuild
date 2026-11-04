@@ -21,6 +21,10 @@ from pathlib import Path
 
 from .structures import ELEMENT_SET, canonical_element
 
+#: the bundled index of names (written by ``tools/build_data_index.py``): what the
+#: checks need to know about CP2K's ``data/`` without shipping 77 MB of GPL data
+INDEX_PREFIX = "index_"
+
 BASIS_FILE_PATTERNS = (
     "BASIS_SET",
     "BASIS_MOLOPT",
@@ -121,6 +125,19 @@ def parse_data_file(path: Path, kind: str) -> list[DataEntry]:
     return entries
 
 
+def bundled_index_file() -> Path | None:
+    """``cp2kbuild/data/index_<version>.json`` (newest wins), if it is there.
+
+    Works from source and from a frozen executable: ``build_exe.py`` adds the
+    index to the bundle under ``data/``, exactly like the manual database.
+    """
+    from .paths import resource_path
+
+    folder = resource_path("data")
+    candidates = sorted(Path(folder).glob(f"{INDEX_PREFIX}*.json"))
+    return candidates[-1] if candidates else None
+
+
 class DataIndex:
     """All basis sets and potentials found in a CP2K data directory."""
 
@@ -130,13 +147,29 @@ class DataIndex:
         self.basis_files: list[str] = []
         self.potential_files: list[str] = []
         self.warnings: list[str] = []
+        #: True when the numbers come from the bundled index instead of a scanned
+        #: ``data/`` directory; ``cp2k`` then says which version it was taken from
+        self.bundled = False
+        self.cp2k = ""
         if self.directory:
             self._scan(self.directory)
+        else:
+            self._load_bundled()
+
+    @property
+    def source_label(self) -> str:
+        """Where the names come from, in a form meant to sit inside parentheses."""
+        if self.bundled:
+            return f"内置索引 CP2K {self.cp2k or '?'}"
+        if self.directory:
+            return str(self.directory)
+        return "没有基组数据"
 
     # -- construction ------------------------------------------------------ #
     def _scan(self, directory: Path) -> None:
         if not directory.is_dir():
             self.warnings.append(f"data directory not found: {directory}")
+            self._load_bundled()
             return
         basis_paths = _collect(directory, BASIS_FILE_PATTERNS, exclude_prefixes=("MM_",))
         potential_paths = _collect(directory, POTENTIAL_FILE_PATTERNS,
@@ -153,6 +186,42 @@ class DataIndex:
                 self.entries.extend(found)
         if not self.entries:
             self.warnings.append(f"在 {directory} 里没解析出任何基组或赝势")
+            self._load_bundled()
+
+    def _load_bundled(self) -> None:
+        """Read the names out of ``cp2kbuild/data/index_*.json``.
+
+        The index holds only ``[file, name, element, valence, aliases]`` rows - no
+        CP2K parameters - so it is a few hundred KB instead of the 77 MB of a real
+        ``data/`` directory.  It is what makes "does this basis set exist for this
+        element, with the same valence as the potential" work on a machine that has
+        no CP2K installed; when a real ``data/`` is given it is scanned instead, so
+        locally added or edited entries still win.
+        """
+        location = bundled_index_file()
+        if location is None:
+            return
+        try:
+            import json
+
+            payload = json.loads(location.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:      # noqa: BLE001 - never fatal
+            self.warnings.append(f"内置的基组索引读不了（{location.name}）：{exc}")
+            return
+        files = payload.get("files") or {}
+        self.basis_files = list(files.get("basis") or [])
+        self.potential_files = list(files.get("potential") or [])
+        rows = payload.get("entries") or {}
+        for kind in ("basis", "potential"):
+            for row in rows.get(kind) or []:
+                file, name, element, valence = row[0], row[1], row[2], row[3]
+                aliases = tuple(row[4]) if len(row) > 4 and row[4] else ()
+                self.entries.append(DataEntry(kind, file, element, name, aliases,
+                                              valence))
+        self.bundled = True
+        self.cp2k = str(payload.get("cp2k") or "")
+        if not self.entries:
+            self.warnings.append(f"{location.name} 里没有条目")
 
     # -- queries ----------------------------------------------------------- #
     def _kind(self, kind: str) -> list[DataEntry]:
@@ -222,6 +291,8 @@ class DataIndex:
         potential_names = sorted({e.name for e in self._kind("potential")})
         return {
             "directory": str(self.directory) if self.directory else None,
+            "source": self.source_label,
+            "bundled": self.bundled,
             "basis_files": sorted(set(self.basis_files)),
             "potential_files": sorted(set(self.potential_files)),
             "basis_entries": len(self._kind("basis")),

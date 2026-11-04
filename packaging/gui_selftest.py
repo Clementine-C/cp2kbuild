@@ -3177,6 +3177,58 @@ def main() -> int:
     check(generate.w_out.text() == before and len(calls) == 3,
           "在对话框里点取消：不写文件、路径也不变")
 
+    # ---- 「文件 → 设置工作目录…」 --------------------------------------- #
+    # 真实需求：加一个设置工作目录的功能。语义是"所有文件对话框从这里开始、保存
+    # 也默认放这里"，但**不改变任何写进输入的路径**（那会和 CLI 的逐字节比对打架）。
+    work_dir = Path(_tempfile.mkdtemp(prefix="gui_workdir_"))
+    stale_dir = str(work_dir / "gone")
+    file_menu = next((action.menu() for action in window.menuBar().actions()
+                      if action.text() == "文件" and action.menu()), None)
+    texts = [action.text() for action in file_menu.actions()] if file_menu else []
+    check("设置工作目录…" in texts and "在工作目录中打开" in texts
+          and "清除工作目录" in texts,
+          f"「文件」菜单里有工作目录三项：{texts}")
+    saved_workdir = window.settings.value("workdir", None)
+    window.settings.remove("workdir")
+    window.refresh_workdir()
+    check("未设置" in window.workdir_label.text()
+          and not window.open_workdir_action.isEnabled(),
+          f"没设置时状态栏写「未设置」、「打开」是灰的：{window.workdir_label.text()!r}")
+    window.settings.setValue("workdir", str(work_dir))
+    window.refresh_workdir()
+    check(str(work_dir) in window.workdir_label.text()
+          and window.open_workdir_action.isEnabled()
+          and window.forget_workdir_action.isEnabled(),
+          f"设置之后状态栏显示路径、两个菜单项可用：{window.workdir_label.text()!r}")
+    check(generate._start_directory(None) == str(work_dir),
+          f"文件对话框从工作目录开始：{generate._start_directory(None)!r}")
+    # 每个字段自己记住的目录仍然优先（不然"上次选中在哪"就白记了）
+    generate.settings.setValue("last_structure_dir", str(save_dir))
+    check(generate._start_directory("last_structure_dir") == str(save_dir),
+          "字段自己记住的目录优先于工作目录")
+    generate.settings.remove("last_structure_dir")
+    # 写进输入的路径不受影响：生成的那份文件里不能凭空出现工作目录
+    generate.refresh()
+    check(str(work_dir) not in generate.text,
+          "工作目录不会改变生成的输入（它只管对话框，不管路径写法）")
+    # 目录被删掉之后按"未设置"处理，而不是让对话框去一个不存在的路径
+    window.settings.setValue("workdir", stale_dir)
+    window.refresh_workdir()
+    check("不存在" in window.workdir_label.text()
+          and not window.open_workdir_action.isEnabled()
+          and window.forget_workdir_action.isEnabled(),
+          f"工作目录被删掉时会说明，并且不再启用「打开」：{window.workdir_label.text()!r}")
+    # 「清除工作目录」把它从 QSettings 里删掉
+    window.forget_workdir()
+    check(window.settings.value("workdir", None) is None
+          and "未设置" in window.workdir_label.text(),
+          "「清除工作目录」把设置删干净了")
+    if saved_workdir is None:
+        window.settings.remove("workdir")
+    else:
+        window.settings.setValue("workdir", saved_workdir)
+    window.refresh_workdir()
+
     # ---- saving *into the directory the classical files live in* must shorten
     # ---- their names on disk too, not only in the preview ----------------- #
     # (the text used to be built for the *old* output directory, so this saved a
@@ -3647,6 +3699,30 @@ def main() -> int:
           == QHeaderView.Interactive, "生成页的基组表列宽也可拖")
     check(not window.generate.diagnostics.isSortingEnabled(),
           "校验结果表默认不排序（保持严重程度顺序）")
+    # 没有 data/ 目录时用的是内置索引：这一页要说清"名单来自哪里"，而不是
+    # 只写一句"没有找到数据目录"（那会让人以为基组核对整个失效了）
+    from cp2kbuild.datafiles import DataIndex as _DataIndex
+
+    real_index = window.data_tab.index
+    bundled_index = _DataIndex(None)
+    window.data_tab.set_backend(bundled_index, window.data_tab.db
+                                if hasattr(window.data_tab, "db") else None)
+    pump(120)
+    check(bundled_index.bundled and "内置索引" in window.data_tab.summary.text()
+          and "版本" in window.data_tab.summary.text(),
+          f"没有 data/ 时基组页写明用的是内置索引："
+          f"{window.data_tab.summary.text()[:90]}")
+    window.data_tab.index = bundled_index
+    window.data_tab.elements.setText("H, C, O")
+    window.data_tab.recommend()
+    check(window.data_tab.table.rowCount() == 3,
+          f"用内置索引也能给出 H/C/O 的基组建议：{window.data_tab.table.rowCount()} 行")
+    window.data_tab.set_backend(real_index, None)
+    pump(120)
+    check("内置索引" not in window.data_tab.summary.text(),
+          "有真的 data/ 目录时又回到按目录核对")
+    window.data_tab.elements.setText("H, C, O, Fe, Pt")
+    window.data_tab.recommend()
     check("2026" in window.windowTitle() or "trunk" in window.windowTitle(),
           f"窗口标题带上内置手册的 CP2K 版本：{window.windowTitle()}")
     # the title and the "about" line were two of the spots damaged by a
