@@ -23,7 +23,8 @@ from .cutoffkit import (DEFAULT_CUTOFFS, DEFAULT_FIXED_REL_CUTOFF,
 from .recipes import RUN_TYPE_OF as RUN_TYPES
 from .recipes import (MM_ROUTES, TASKS, BuildResult, MmLennardJones, MmMolecule,
                       Spec, build, effective_route, is_classical,
-                      lennard_jones_pairs, mm_route, structure_stem)
+                      lennard_jones_pairs, mm_route, parse_magnetizations,
+                      structure_stem)
 from .recipes import EXT_RESTART_TAKES
 from .recipes import prepare_structure as apply_structure_options
 from .structures import Cell, Structure, parse_cell_text, parse_numbers, read_structure
@@ -315,6 +316,10 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                         help="spin multiplicity; >1 switches on UKS")
     parser.add_argument("--uks", action="store_true", default=None,
                         help="force unrestricted Kohn-Sham")
+    parser.add_argument("--magnetization", default=None, metavar="E=V,...",
+                        help="initial spin per element in the atomic guess, e.g. "
+                             "\"Fe=3,O=0.5\" (&KIND MAGNETIZATION); only written "
+                             "for a spin-polarised run (multiplicity > 1 or --uks)")
     parser.add_argument("--periodic", default=None,
                         choices=["XYZ", "XY", "XZ", "YZ", "X", "Y", "Z", "NONE"],
                         help="cell periodicity")
@@ -1508,6 +1513,7 @@ def spec_from_args(args) -> Spec:
         charge=args.charge,
         multiplicity=args.multiplicity,
         uks=args.uks,
+        magnetization=parse_magnetizations(getattr(args, "magnetization", None)),
         periodic=args.periodic,
         vacuum=args.vacuum,
         cell=parse_cell(args.cell),

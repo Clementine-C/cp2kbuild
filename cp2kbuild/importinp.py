@@ -711,6 +711,18 @@ def _derive(sections: list, report: ImportReport) -> None:
     if subsys is not None:
         from .recommend import DEUTERIUM_MASS
 
+        # initial spins: ``&KIND ... MAGNETIZATION``, one value per element; the
+        # form keeps them as a small "Fe=3, O=0.5" dictionary
+        spins = {}
+        for kind in subsys.subsections("KIND"):
+            name = str(kind.parameter or "").strip()
+            element = str(kind.get("ELEMENT", name) or name).strip()
+            value = _num(kind.get("MAGNETIZATION"), "float")
+            if element and value:
+                spins[element] = value
+        if spins:
+            _add(report, "magnetization", "初始磁矩（每个元素）", spins,
+                 "FORCE_EVAL/SUBSYS/KIND/MAGNETIZATION")
         for kind in subsys.subsections("KIND"):
             name = str(kind.parameter or "").strip().upper()
             element = str(kind.get("ELEMENT", name) or name).strip().upper()

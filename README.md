@@ -459,6 +459,28 @@ special k-points and symmetry operations with real Bloch phases"，而 CP2K 自�
 CLI（**暂时不再加新开关**）对应的写法是 `--kpoint-spacing/--kpoint-grid/--kpoint-point/…`，
 自测里 GUI 与 CLI 逐字节对比过这几组组合。
 
+### 自旋极化（UKS）与「初始磁矩」
+
+`MULTIPLICITY > 1` 时工具会自动写 `UKS T`（多重度必须和它一起）；想算**开壳层单重态**
+（多重度 1、但自旋不配对）就勾「强制 UKS」。两者合起来决定"这次算不算自旋极化"，
+界面上有一行提示实时写明现在是**强制开启 / 自动开启 / 关闭**。
+
+「初始磁矩」写的是 `&KIND <元素> MAGNETIZATION`（μB，按元素给），手册原文：
+"The magnetization used in the atomic initial guess. Adds magnetization/2 spin-alpha
+electrons and removes magnetization/2 spin-beta electrons."
+
+* **只在自旋极化时有意义**：闭壳层没有 α/β 两个通道，这个数不会被用。所以 UKS 关着时这一格
+  是灰的（「?」里写明原因），已经填了东西会直接警告"不会写进输入"；命令行
+  `--magnetization` 同样给 `WARN … 不会生效`。
+* 它是**初猜**不是约束：SCF 收敛后真正的磁矩由能量决定；要强制磁矩得用
+  `&SCF/&CONSTRAINT` 那一套（工具不写）。
+* 典型用法：Fe³⁺ 给 5、Ni²⁺ 给 2、O₂ 给 2——目的是把 SCF 引到想要的那支自旋解上，
+  避免收敛到非磁解。
+* 和破缺对称 `&BS` **冲突**：CP2K 直接中止（`qs_kind_types.F`："BS Section is in conflict
+  with non-zero magnetization for this atom kind"），校验器给 error。
+* 写法 `Fe=3, O=0.5`（`=`、`:`、空格、大小写都行，元素符号会规范化）；「读参数」会把
+  已有输入里的 `MAGNETIZATION` 读回这一格，生成时逐字节还原。
+
 ### 另外补上的常用控件
 
 | 控件 | CP2K 关键字 | 为什么常用 |
@@ -988,6 +1010,15 @@ cp2kbuild-gui-2026.2.exe                :: 打包后的 exe，双击即可
 提示**只挂在「?」上**：悬浮输入框、下拉框、按钮本身不会弹出任何东西——否则那一条长提示会正好盖住你要填的那几个框。例如 CUTOFF 会告诉你"这是最需要自己收敛的参数，SZV≈350、DZVP≈400、TZVP≈600"，色散会告诉你"分子晶体/吸附/层状材料必须加，不加会算成几乎没有结合"。
 
 其中 150 个「?」**可以直接点击**打开对应的手册页（`&FORCE_EVAL/DFT/MGRID/CUTOFF` 之类），因为帮助里写的手册位置是拿内置手册数据库核对过的——写错会 404，所以自测里有一条专门检查这个。
+
+**外观（2026-11 一轮整理）**：`gui.py` 里那张样式表统一定义了控件的观感——
+输入框/下拉框圆角 + 聚焦时蓝色描边（灰掉时浅底浅字，一眼能看出"现在用不上"），
+按钮有 hover/pressed/disabled 三态，**「保存」是主按钮**（深蓝底白字，左栏底部一眼能找到），
+表格斑马纹 + 淡蓝选中色，滚动条改成 11 px 的细条（原来的系统滚动条在长表单里很占地方），
+提示框（tooltip）白底细边框，复选框/可勾选组标题的方框统一成 14 px。
+`QSpinBox`/`QDoubleSpinBox` **故意不套样式**：一旦给它们加边框，平台原生的上下箭头会被挤成一条线
+（离屏渲染时验证过），所以它们保持系统外观，其余控件统一。这些改动只动样式表，不动布局——
+"视口 ≥ 内容最小宽度、没有横向滚动条"那四条断言仍然全绿。
 
 不悬浮也能通读：`python packaging\dump_help.py` 会把全部帮助导出成 `packaging/help.md`。
 
@@ -1706,6 +1737,8 @@ python -m cp2kbuild validate job.inp --json      :: 机器可读
 | `&KIND` 覆盖 | `&COORD` 里出现却没定义 `&KIND` 的元素 |
 | 电荷–自旋奇偶性 | 按**赝势价电子数**算电子数（不是原子序数！），`MULTIPLICITY` 奇偶性不符 → 报错 |
 | 多重度与 UKS | `MULTIPLICITY > 1` 未开 UKS → 提示（新版 CP2K 会自动自旋极化） |
+| `&KIND MAGNETIZATION` 与 UKS | 写了初猜磁矩但没 UKS T（闭壳层）→ 提示：闭壳层没有 α/β 通道，那个数不会被用 |
+| `&KIND MAGNETIZATION` 与 `&BS` | 两者同时给 → 报错：CP2K 直接中止（`qs_kind_types.F`："BS Section is in conflict with non-zero magnetization for this atom kind"） |
 | 多重网格自洽性 | `REL_CUTOFF > CUTOFF` 时最细网格无法承载单位高斯 → 警告 |
 | cutoff 偏小 | 相对基组给出提示 |
 | SMEAR 与 OT 冲突 | `SMEAR` 必须走 `DIAGONALIZATION`；`SMEAR` 需要 `ADDED_MOS > 0`（`&OT OFF` 之类被关掉的块不计入；值由预处理器决定的场合跳过判断） |

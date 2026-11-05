@@ -27,7 +27,7 @@ from typing import Callable
 
 from .recipes import (CELL_ANNEALING_ENSEMBLES, Spec, THERMOSTATTED_ENSEMBLES,
                       VELOCITY_ANNEALING_ENSEMBLES, coordinates_are_inline,
-                      effective_route, is_classical, mm_route,
+                      effective_route, effective_uks, is_classical, mm_route,
                       poisson_solvers_for, writes_kpoints)
 
 MOTION_TASKS = ("md", "geo_opt", "cell_opt")
@@ -168,7 +168,7 @@ DFT_ONLY_FIELDS = (
     "wfn_restart_add_last", "wfn_backup_copies",
     # ... and no electrons, so no total charge and no spin multiplicity either
     # (the charges come from the force field, not from the input)
-    "charge", "multiplicity", "uks",
+    "charge", "multiplicity", "uks", "magnetization",
     # the Molden file *is* the orbitals: nothing to write without a wave function
     "print_molden", "molden_file", "molden_nlumo", "molden_unit",
     "molden_gto_kind", "molden_write_pseudo", "molden_write_cell",
@@ -553,6 +553,19 @@ RULES += (
             if not writes_kpoints(spec) else ""),
         "FORCE_EVAL/DFT/KPOINTS/WAVEFUNCTIONS",
         flags=("--kpoint-wavefunctions",),
+    ),
+    #: ``&KIND MAGNETIZATION`` is "the magnetization used in the atomic initial
+    #: guess" (``input_cp2k_subsys.F``); a closed-shell run (no UKS/LSD) never
+    #: reads it, so the numbers would silently do nothing.
+    Rule(
+        "magnetization",
+        lambda spec, structure: effective_uks(spec),
+        lambda spec, structure: (
+            "UKS 关着（闭壳层）：CP2K 的闭壳层计算不读 `&KIND MAGNETIZATION`"
+            "（它只是原子初猜的自旋）。要算磁性体系：把「自旋多重度」调大"
+            "（> 1 会自动写 UKS T），或者勾上「强制 UKS」做开壳层单重态"),
+        "FORCE_EVAL/SUBSYS/KIND/MAGNETIZATION（+ FORCE_EVAL/DFT/UKS）",
+        flags=("--magnetization",),
     ),
     # ---------------- metadynamics ----------------
     #: The whole ``&COLVAR``/``&METADYN`` pair belongs to an MD run: the bias is

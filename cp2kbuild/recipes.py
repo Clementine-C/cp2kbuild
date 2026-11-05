@@ -435,6 +435,10 @@ class Spec:
     charge: int = 0
     multiplicity: int = 1
     uks: bool | None = None
+    #: ``&KIND ... MAGNETIZATION`` (μB, per element): the **initial** spin of the
+    #: atomic guess.  CP2K only reads it in a spin-polarised (UKS/LSD) run, which
+    #: is what ``effective_uks`` reports; the couplings greys it out otherwise.
+    magnetization: dict = field(default_factory=dict)
     periodic: str | None = None
     vacuum: float | None = None
     cell: Cell | None = None
@@ -906,7 +910,7 @@ def dft_section(spec: Spec, setup: Setup, structure: Structure | None,
     if spec.charge:
         dft.set("CHARGE", int(spec.charge),
                 comment="total charge of the system")
-    uks = spec.uks if spec.uks is not None else spec.multiplicity > 1
+    uks = effective_uks(spec)
     if uks:
         dft.set("UKS", True, comment="unrestricted Kohn-Sham (spin polarised)")
         dft.set("MULTIPLICITY", int(spec.multiplicity))
@@ -1247,6 +1251,53 @@ def ot_supports_kpoints() -> bool:
     return False
 
 
+def effective_uks(spec: Spec) -> bool:
+    """Whether the input is spin-polarised: ``UKS T`` / ``LSD``.
+
+    Either the user forced it (``uks=True``: an open-shell singlet, multiplicity
+    1 but two singly occupied orbitals) or the multiplicity asks for it
+    (anything above 1 cannot be a closed shell).  Everything that only applies to
+    a spin-polarised run - most visibly ``&KIND ... MAGNETIZATION``, which CP2K
+    calls "the magnetization used in the atomic initial guess" and ignores
+    otherwise - asks this function instead of re-deriving the rule.
+    """
+    if spec.uks is not None:
+        return bool(spec.uks)
+    return int(spec.multiplicity or 1) > 1
+
+
+def parse_magnetizations(text: str | None) -> dict:
+    """Parse ``"Fe=3, O=0.5"`` (or ``Fe:3``, ``Fe 3``) into ``{"Fe": 3.0, ...}``.
+
+    The same field on the command line (``--magnetization``) and in the
+    interface; element symbols are canonicalised so ``fe`` and ``FE`` land on the
+    same ``&KIND``.
+    """
+    from .structures import canonical_element
+
+    out: dict = {}
+    if not text:
+        return out
+    for chunk in str(text).replace(";", ",").replace("\n", ",").split(","):
+        piece = chunk.strip()
+        if not piece:
+            continue
+        for separator in ("=", ":", " "):
+            if separator in piece:
+                element, _, value = piece.partition(separator)
+                break
+        else:
+            continue
+        symbol = canonical_element(element.strip()) or element.strip()
+        try:
+            number = float(value.strip())
+        except ValueError:
+            continue
+        if symbol:
+            out[symbol] = number
+    return out
+
+
 def effective_route(spec: Spec, force_diagonalization: bool = False) -> str:
     """Which SCF route a spec actually uses: ``"OT"`` or ``"DIAGONALIZATION"``.
 
@@ -1513,7 +1564,12 @@ def subsys_section(spec: Spec, setup: Setup, structure: Structure | None,
                              comment=("atomic coordinates [fractional]"
                                       if spec.scaled_coords
                                       else "atomic coordinates [angstrom]")))
-    for kind in setup.kind_sections(h_to_d=spec.h_to_d):
+    # ``&KIND MAGNETIZATION`` is only read by a spin-polarised run, so the
+    # values are passed through only when ``UKS T`` is on - otherwise CP2K would
+    # silently ignore them (see effective_uks / couplings.RULES)
+    for kind in setup.kind_sections(
+            h_to_d=spec.h_to_d,
+            magnetizations=(spec.magnetization if effective_uks(spec) else None)):
         subsys.add(kind)
     # metadynamics CVs live in &SUBSYS, and ``&METAVAR COLVAR n`` counts them in
     # exactly this order.  On the PLUMED route the CVs come from the PLUMED input

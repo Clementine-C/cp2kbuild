@@ -55,7 +55,7 @@ from .recipes import (COORD_SUFFIX_FORMAT, EXT_RESTART_TAKES, MM_ROUTES, TASKS,
                       BuildResult,
                       MmLennardJones, MmMolecule, Spec, build, effective_route,
                       is_classical, kpoint_wavefunction_choice, lennard_jones_pairs,
-                      mm_route,
+                      mm_route, parse_magnetizations,
                       poisson_solver_note, poisson_solvers_for, prepare_structure,
                       reads_as_cp2k_input, restart_summary, suggest_kpoint_grid)
 from .structures import Structure, parse_cell_text, read_structure
@@ -349,10 +349,113 @@ QStatusBar::item {
     border: 0px;
 }
 QPushButton {
-    padding: 5px 12px;
+    padding: 5px 14px;
+    min-height: 24px;
+    border: 1px solid #c9d4e0;
+    border-radius: 4px;
+    background: #ffffff;
+}
+QPushButton:hover {
+    background: #eef4fa;
+    border-color: #a8bcd2;
+}
+QPushButton:pressed {
+    background: #e2ecf6;
+}
+QPushButton:disabled {
+    color: #9aa7b4;
+    background: #f6f8fa;
+    border-color: #e3e8ee;
+}
+QPushButton#primary {
+    background: #2b5680;
+    color: #ffffff;
+    border-color: #24466b;
+    font-weight: 600;
+}
+QPushButton#primary:hover {
+    background: #34648f;
+}
+QPushButton#primary:pressed {
+    background: #24466b;
+}
+QPushButton#primary:disabled {
+    background: #b9c6d3;
+    border-color: #b9c6d3;
+    color: #f2f6fa;
+}
+QLineEdit {
+    border: 1px solid #cfd8e3;
+    border-radius: 4px;
+    padding: 3px 6px;
+    background: #ffffff;
+    selection-background-color: #cfe0f2;
+    selection-color: #12263a;
+}
+QComboBox {
+    border: 1px solid #cfd8e3;
+    border-radius: 4px;
+    padding: 3px 6px;
+    background: #ffffff;
+}
+QLineEdit:focus, QComboBox:focus {
+    border-color: #2b5680;
+}
+QLineEdit:disabled, QComboBox:disabled {
+    color: #97a3b0;
+    background: #f7f9fb;
+    border-color: #e3e8ee;
+}
+QCheckBox {
+    spacing: 7px;
+}
+QCheckBox::indicator, QGroupBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QTableWidget, QTableView {
+    gridline-color: #e8eef5;
+    alternate-background-color: #fafcfe;
+    selection-background-color: #dce8f6;
+    selection-color: #12263a;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+}
+QToolTip {
+    background: #fdfefe;
+    color: #1f2d3a;
+    border: 1px solid #b9c8d8;
+    padding: 5px 7px;
+}
+QScrollBar:vertical {
+    width: 11px;
+    background: transparent;
+}
+QScrollBar:horizontal {
+    height: 11px;
+    background: transparent;
+}
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: #c3cfdc;
+    border-radius: 5px;
+    min-height: 24px;
+    min-width: 24px;
+}
+QScrollBar::handle:hover {
+    background: #a9bacd;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0px;
+    height: 0px;
+}
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: transparent;
 }
 QSplitter::handle {
     background: #e6ecf3;
+}
+QSplitter::handle:hover {
+    background: #d3dfec;
 }
 """
 
@@ -947,6 +1050,7 @@ class GenerateTab(QWidget):
         # (CP2K input or plumed.dat + its default file name), so the label says
         # "保存" and not "保存为 .inp"
         self.save_button = QPushButton("保存")
+        self.save_button.setObjectName("primary")     # the one action worth finding
         self.save_button.clicked.connect(self.save)
         self.copy_button = QPushButton("复制")
         self.copy_button.clicked.connect(self.copy)
@@ -1862,6 +1966,7 @@ class GenerateTab(QWidget):
             "charge": self.w_charge,
             "multiplicity": self.w_multiplicity,
             "uks": self.w_force_uks,
+            "magnetization": self.w_magnetization,
             # Molden
             "print_molden": self.w_molden,
             "molden_file": self.w_molden_file,
@@ -2014,6 +2119,8 @@ class GenerateTab(QWidget):
             auto = self.w_kgrid_auto.isChecked()
             self.w_kgrid.setEnabled(applies and not auto)
             self.w_kpoint_spacing.setEnabled(applies and auto)
+        # the UKS / multiplicity hint quotes the same state the rule table used
+        self._update_uks_hint()
 
     def _smearing_changed(self, on: bool) -> None:
         """Smearing decides the route (and therefore what applies)."""
@@ -3732,6 +3839,18 @@ class GenerateTab(QWidget):
         form_row(form, "charge", "总电荷", self.w_charge)
         form_row(form, "multiplicity", "自旋多重度", self.w_multiplicity)
         check_row(form, "force_uks", self.w_force_uks)
+        # ``&KIND MAGNETIZATION`` is the *initial* spin of the atomic guess, and
+        # CP2K only reads it in a spin-polarised (UKS/LSD) run - so this field is
+        # greyed out while UKS is off (couplings.RULES) and the hint says why
+        self.w_magnetization = QLineEdit()
+        self.w_magnetization.setPlaceholderText(
+            "按元素给初始自旋，例如 Fe=3, O=0.5（μB）")
+        form_row(form, "magnetization", "初始磁矩", self.w_magnetization)
+        self.uks_hint = hint_label()
+        form.addRow(self.uks_hint)
+        self.w_force_uks.toggled.connect(self._uks_changed)
+        self.w_multiplicity.valueChanged.connect(self._uks_changed)
+        self.w_magnetization.textChanged.connect(self._update_uks_hint)
         form_row(form, "vacuum", "真空层", self.w_vacuum)
         form_row(form, "periodic", "周期性", self.w_periodic)
         form_row(form, "cell", "晶胞覆盖", self.w_cell)
@@ -3788,6 +3907,38 @@ class GenerateTab(QWidget):
             # loop and leave the Poisson control describing the old cell; treat it
             # as "no cell typed yet" and fall back to the structure's own cell.
             return None
+
+    def _uks_changed(self) -> None:
+        """UKS / multiplicity decide whether 「初始磁矩」 can take effect."""
+        self._update_uks_hint()
+        self._apply_couplings()
+        self.schedule()
+
+    def _update_uks_hint(self) -> None:
+        """Say whether the run is spin-polarised, and whether the spins are used."""
+        if not hasattr(self, "uks_hint"):
+            return
+        forced = self.w_force_uks.isChecked()
+        multiplicity = self.w_multiplicity.value()
+        spins = parse_magnetizations(self.w_magnetization.text())
+        if forced and multiplicity == 1:
+            text = ("UKS：**强制开启**（多重度 1 = 开壳层单重态：两个单占轨道、总自旋 0）。"
+                    "「初始磁矩」会写进 `&KIND MAGNETIZATION`。")
+            level = None
+        elif forced or multiplicity > 1:
+            text = (f"UKS：**开启**（多重度 {multiplicity} > 1 时 CP2K 必须自旋极化）。"
+                    "「初始磁矩」会写进 `&KIND MAGNETIZATION`。")
+            level = None
+        else:
+            text = ("UKS：**关闭**（闭壳层，多重度 1）。CP2K 的闭壳层计算不读 "
+                    "`&KIND MAGNETIZATION`，所以「初始磁矩」这一格现在用不上；"
+                    "要算磁性体系就把多重度调大、或勾上「强制 UKS」。")
+            level = "warning" if spins else None
+            if spins:
+                text = ("⚠ 填了初始磁矩，但 UKS 关着：这些值**不会**写进输入"
+                        "（CP2K 的闭壳层计算不读 `MAGNETIZATION`）。"
+                        "要把多重度调大，或者勾上「强制 UKS」。")
+        set_hint(self.uks_hint, text, level=level)
 
     def _poisson_changed(self) -> None:
         """Offer only the solvers the manual allows for this periodicity."""
@@ -4966,6 +5117,13 @@ class GenerateTab(QWidget):
                     panel.import_metadyn(setting.value)
                     applied.append(setting)
                 continue
+            if setting.field == "magnetization" and isinstance(setting.value, dict):
+                # the form keeps the per-element initial spins as "Fe=3, O=0.5"
+                self.w_magnetization.setText(", ".join(
+                    f"{element}={value:g}"
+                    for element, value in sorted(setting.value.items())))
+                applied.append(setting)
+                continue
             widget = widgets.get(setting.field)
             if widget is None:
                 skipped.append(f"{setting.label}（界面里没有对应控件）")
@@ -5142,6 +5300,7 @@ class GenerateTab(QWidget):
         self.w_charge.setValue(0)
         self.w_multiplicity.setValue(1)
         self.w_force_uks.setChecked(False)
+        self.w_magnetization.clear()
 
         # ---- output ----
         self.w_project.clear()
@@ -5412,6 +5571,7 @@ class GenerateTab(QWidget):
             charge=self.w_charge.value(),
             multiplicity=self.w_multiplicity.value(),
             uks=True if self.w_force_uks.isChecked() else None,
+            magnetization=parse_magnetizations(self.w_magnetization.text()),
             periodic=self.w_periodic.currentData(),
             vacuum=self.w_vacuum.value() or None,
             cell=cell,

@@ -33,7 +33,8 @@ from cp2kbuild.metadyn import (Cv, Metadyn, Metavar, Wall,  # noqa: E402
                                problems as metadyn_problems)
 from cp2kbuild.model import render_document  # noqa: E402
 from cp2kbuild.parser import parse_input  # noqa: E402
-from cp2kbuild.recipes import MmLennardJones, MmMolecule  # noqa: E402
+from cp2kbuild.recipes import (MmLennardJones, MmMolecule,  # noqa: E402
+                               parse_magnetizations)
 from cp2kbuild.structures import Cell  # noqa: E402
 from cp2kbuild.validate import Validator, summarise  # noqa: E402
 
@@ -1638,6 +1639,15 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
         ("波函数形式 COMPLEX 但没开 k 点：不写 &KPOINTS", dict(
             task="energy", structure=silicon, kpoint_wavefunctions="COMPLEX"),
          ["PROJECT_NAME cp2k"]),
+        # ---- UKS 与初始磁矩（&KIND MAGNETIZATION）---------------------- #
+        ("多重度 3 + 初始磁矩", dict(
+            task="energy", structure=water, vacuum=12.0, multiplicity=3,
+            magnetization={"O": 2.0}),
+         ["UKS T", "MULTIPLICITY 3", "MAGNETIZATION 2.0"]),
+        ("强制 UKS（开壳层单重态）+ 初始磁矩", dict(
+            task="energy", structure=water, vacuum=12.0, uks=True,
+            magnetization={"O": 1.5, "H": 0.5}),
+         ["UKS T", "MAGNETIZATION 1.5", "MAGNETIZATION 0.5"]),
         ("立方体：轨道 + 密度", dict(
             task="energy", structure=silicon, print_mo_cubes=True,
             mo_cubes_nlumo=1, mo_cubes_stride="1 1 1",
@@ -1758,6 +1768,22 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
         else:
             print(f"  ok   {label}：参数写进去了，校验 0 error"
                   f"（{len(text.splitlines())} 行）")
+
+    # ---- UKS 关闭时磁矩不写进输入（CP2K 的闭壳层不读 MAGNETIZATION）------ #
+    closed = Spec(task="energy", structure=water, vacuum=12.0,
+                  magnetization={"O": 2.0})
+    closed_text = render_document(build(closed, index).sections, title="t", notes=[])
+    if "MAGNETIZATION" not in closed_text and "UKS" not in closed_text:
+        print("  ok   闭壳层（没 UKS）时初始磁矩不写进输入")
+    else:
+        failures += 1
+        print("  FAIL 闭壳层也写了 MAGNETIZATION / UKS")
+    parsed = parse_magnetizations("Fe=3, O=0.5; n:1")
+    if parsed.get("Fe") == 3.0 and parsed.get("O") == 0.5 and parsed.get("N") == 1.0:
+        print("  ok   初始磁矩的写法都能读（= : 空格、大小写、分号）")
+    else:
+        failures += 1
+        print(f"  FAIL 初始磁矩解析不对：{parsed}")
 
     # ------------------------------------------------------------------ #
     # 任务接力: the take-list must be exactly "RESTART_DEFAULT F + the named

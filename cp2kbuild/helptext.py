@@ -1892,6 +1892,22 @@ HELP: dict[str, Help] = {
         "想算开壳层单重态（多重度 1 但自旋不配对）才需要手动勾。\n"
         "代价大约是闭壳层的 1.5–2 倍。",
         "FORCE_EVAL/DFT", "UKS"),
+    "magnetization": Help(
+        "`&KIND <元素> MAGNETIZATION`：**原子初猜**的磁矩（μB，每个元素一个值）。\n"
+        "手册原文：\"The magnetization used in the atomic initial guess. Adds "
+        "magnetization/2 spin-alpha electrons and removes magnetization/2 "
+        "spin-beta electrons.\"\n"
+        "• **只对自旋极化（UKS T）的计算有意义**：闭壳层没有 α/β 两个通道，"
+        "写了也不会被用（工具会把这一格灰掉并说明）；\n"
+        "• 它是**初猜**，不是约束：SCF 收敛后真正的磁矩可能更大或更小"
+        "（收敛结果由能量决定），要强制磁矩得用 `&SCF/&CONSTRAINT` 那一套；\n"
+        "• 典型用法：Fe³⁺ 给 5、Ni²⁺ 给 2、O₂ 给 2——"
+        "目的是把 SCF 引到想要的那支自旋解上，避免收敛到非磁解；\n"
+        "• 和破缺对称 `&BS` **冲突**：两者同时给，CP2K 直接中止"
+        "（\"BS Section is in conflict with non-zero magnetization for this atom "
+        "kind\"，`qs_kind_types.F`）。\n"
+        "写法：`Fe=3, O=0.5`（也可以用冒号或空格分隔，元素符号会规范化）。",
+        "FORCE_EVAL/SUBSYS/KIND", "MAGNETIZATION"),
     "vacuum": Help(
         "给孤立分子/团簇/表面板包一层真空。\n"
         "**盒子边长的算法是「分子跨度 + 2×真空」**，不是把真空设成边长："

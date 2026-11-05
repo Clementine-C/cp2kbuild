@@ -1955,6 +1955,50 @@ def main() -> int:
              "--kpoint-point", "0,0,0", "--kpoint-point", "0.5,0.5,0.5,2.0",
              "--stdout"])
 
+    # ---- UKS T 的联动：「初始磁矩」只有自旋极化时才有意义 ------------------ #
+    reset_gui()
+    generate.load_from_path(WATER)
+    generate.kpoint_box.setChecked(False)
+    set_task("energy")
+    generate.w_vacuum.setValue(12.0)
+    generate.w_multiplicity.setValue(1)
+    generate.w_force_uks.setChecked(False)
+    generate.w_magnetization.clear()
+    pump(120)
+    generate.refresh()
+    check(not generate.w_magnetization.isEnabled(),
+          "闭壳层（多重度 1、没强制 UKS）时「初始磁矩」是灰的")
+    check("关闭" in generate.uks_hint.text(),
+          f"UKS 提示说清现在是闭壳层：{generate.uks_hint.text()[:80]!r}")
+    generate.w_magnetization.setText("O=2")
+    pump(120)
+    check("不会**写进输入" in generate.uks_hint.text()
+          or "不会" in generate.uks_hint.text(),
+          f"填了磁矩但 UKS 关着会警告：{generate.uks_hint.text()[:90]!r}")
+    generate.w_multiplicity.setValue(3)
+    pump(120)
+    generate.refresh()
+    text = generate.preview.toPlainText()
+    check(generate.w_magnetization.isEnabled(),
+          "多重度 > 1（= 自旋极化）之后「初始磁矩」就可以填了")
+    check("UKS T" in text and "MAGNETIZATION 2.0" in text,
+          "多重度 3 时写出 UKS T + &KIND O 的 MAGNETIZATION")
+    check("开启" in generate.uks_hint.text(),
+          f"UKS 提示改成开启：{generate.uks_hint.text()[:80]!r}")
+    compare("多重度 3 + 初始磁矩",
+            ["new", "--task", "energy", "--structure", WATER, "--vacuum", "12",
+             "--multiplicity", "3", "--magnetization", "O=2", "--stdout"])
+    generate.w_force_uks.setChecked(True)
+    generate.w_multiplicity.setValue(1)
+    pump(120)
+    generate.refresh()
+    check("开壳层单重态" in generate.uks_hint.text()
+          and "MAGNETIZATION 2.0" in generate.preview.toPlainText(),
+          "强制 UKS（多重度 1，开壳层单重态）时磁矩照样写出去")
+    generate.w_force_uks.setChecked(False)
+    generate.w_magnetization.clear()
+    pump(120)
+
     # cubes + fixed atoms + EPS_DEFAULT + extrapolation
     reset_gui()
     generate.load_from_path(SILICON)

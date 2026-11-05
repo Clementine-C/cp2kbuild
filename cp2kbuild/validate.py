@@ -1608,6 +1608,46 @@ class Validator:
             total += valence
         return total or None
 
+    def _check_magnetizations(self, dft: Section, subsys: Section | None,
+                              spin_polarised: bool) -> None:
+        """``&KIND MAGNETIZATION`` is an *initial guess* for a spin-polarised run.
+
+        The manual: "The magnetization used in the atomic initial guess. Adds
+        magnetization/2 spin-alpha electrons and removes magnetization/2
+        spin-beta electrons" - with no ``UKS T`` there are no alpha/beta
+        channels, so the number cannot act and the run silently starts from a
+        closed-shell guess.  And CP2K *aborts* when the same kind also carries a
+        ``&BS`` block: "BS Section is in conflict with non-zero magnetization for
+        this atom kind" (``qs_kind_types.F``).
+        """
+        if subsys is None:
+            return
+        for kind in subsys.subsections("KIND"):
+            name = kind.parameter if isinstance(kind.parameter, str) else "?"
+            magnetization = _as_float(kind.get("MAGNETIZATION"), None)
+            if not magnetization:
+                continue
+            broken_symmetry = [block for block in kind.subsections("BS")
+                               if section_enabled(block)]
+            if broken_symmetry:
+                self._add(
+                    "error", "bs-with-magnetization",
+                    f"&KIND {name} 同时有 &BS 和非零 MAGNETIZATION "
+                    f"{magnetization:g}：CP2K 直接中止"
+                    "（`qs_kind_types.F`：\"BS Section is in conflict with "
+                    "non-zero magnetization for this atom kind\"）",
+                    path="CP2K_INPUT/FORCE_EVAL/SUBSYS/KIND",
+                    hint="破缺对称（&BS）自己会给出初猜的占据，二选一")
+                continue
+            if not spin_polarised:
+                self._add(
+                    "info", "magnetization-without-uks",
+                    f"&KIND {name} 写了 MAGNETIZATION {magnetization:g}，"
+                    "但没有 UKS T（闭壳层）",
+                    path="CP2K_INPUT/FORCE_EVAL/SUBSYS/KIND",
+                    hint="闭壳层没有 α/β 两个自旋通道，这个初猜磁矩不会被用；"
+                         "要算磁性体系就加 UKS T 并把 MULTIPLICITY 设成 2S+1")
+
     def _check_dft(self, dft: Section, subsys: Section | None,
                    elements: list[str], motion: Section | None,
                    run_type: str, qs_method: str = "GPW") -> None:
@@ -1646,6 +1686,8 @@ class Validator:
             self._add("info", "uks-singlet",
                       "UKS 开着而 MULTIPLICITY 是 1（开壳层单重态）",
                       path="CP2K_INPUT/FORCE_EVAL/DFT")
+        self._check_magnetizations(dft, subsys, spin_polarised=bool(uks_flag)
+                                   or multiplicity > 1)
         if multiplicity_value is not None and elements and subsys is not None:
             if not has_preprocessor(multiplicity_value) and not has_preprocessor(charge):
                 electrons = self._count_electrons(subsys)

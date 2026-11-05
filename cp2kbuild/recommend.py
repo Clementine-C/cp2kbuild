@@ -168,7 +168,8 @@ class Setup:
     def ok(self) -> bool:
         return not self.problems
 
-    def kind_sections(self, h_to_d: bool = False) -> list:
+    def kind_sections(self, h_to_d: bool = False,
+                      magnetizations: dict | None = None) -> list:
         """One ``&KIND`` per element; ``h_to_d`` gives hydrogen deuterium's mass.
 
         Deuterium is **not** a different element in CP2K - it is the same element
@@ -178,9 +179,16 @@ class Setup:
         and pseudopotential, and only ``MASS`` changes.  CP2K's own tests do the
         same thing, e.g. ``tests/QS/regtest-gpw-4/ND3_meta_welltemp.inp``
         (``&KIND H / MASS 2``).
+
+        ``magnetizations`` are the per-element **initial** spins (μB) written as
+        ``MAGNETIZATION``: "The magnetization used in the atomic initial guess.
+        Adds magnetization/2 spin-alpha electrons and removes magnetization/2
+        spin-beta electrons" (``input_cp2k_subsys.F``).  CP2K only reads it in a
+        spin-polarised run, so the caller passes it only when ``UKS T`` is on.
         """
         from .model import Section
 
+        spins = dict(magnetizations or {})
         out = []
         for element, assignment in self.assignments.items():
             comment = f"{element}: {assignment.basis}"
@@ -191,6 +199,11 @@ class Setup:
             section.set("ELEMENT", element)
             section.set("BASIS_SET", assignment.basis)
             section.set("POTENTIAL", assignment.potential)
+            spin = spins.get(element)
+            if spin:
+                section.set("MAGNETIZATION", float(spin), comment=(
+                    "initial spin of the atomic guess: +m/2 alpha and -m/2 beta "
+                    "electrons (input_cp2k_subsys.F); only read by a UKS run"))
             if h_to_d and element.upper() == "H":
                 section.set("MASS", DEUTERIUM_MASS, comment=(
                     "deuterium (H -> D): same element, same basis set and "
