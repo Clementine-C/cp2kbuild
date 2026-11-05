@@ -409,18 +409,18 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         "mixing_method",
-        lambda spec, structure: _diag(spec, structure) and not spec.smearing,
-        "`&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，"
-        "smearing 路线留给 CP2K 自己的默认混合",
+        lambda spec, structure: _diag(spec, structure),
+        "`&MIXING` 只写在对角化路线：OT 用自己的最小化器，不走密度混合。"
+        "（开了 SMEAR 也在写——展宽只改占据数，不改密度怎么混）",
         "cp2kbuild/recipes.py:scf_section",
     ),
 )
 RULES += tuple(
     Rule(
         field,
-        lambda spec, structure: _diag(spec, structure) and not spec.smearing,
-        "`&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，"
-        "smearing 路线留给 CP2K 自己的默认混合",
+        lambda spec, structure: _diag(spec, structure),
+        "`&MIXING` 只写在对角化路线：OT 用自己的最小化器，不走密度混合。"
+        "（开了 SMEAR 也在写——展宽只改占据数，不改密度怎么混）",
         "cp2kbuild/recipes.py:scf_section",
     )
     for field in ("mixing_alpha", "mixing_nbuffer", "mixing_beta")
@@ -428,12 +428,10 @@ RULES += tuple(
 RULES += tuple(
     Rule(
         field,
-        lambda spec, structure: _diag(spec, structure) and not spec.smearing
-                and effective_uks(spec),
+        lambda spec, structure: _diag(spec, structure) and effective_uks(spec),
         lambda spec, structure: (
-            "`&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，"
-            "smearing 路线留给 CP2K 自己的默认混合"
-            if not (_diag(spec, structure) and not spec.smearing) else
+            "`&MIXING` 只写在对角化路线：OT 用自己的最小化器，不走密度混合"
+            if not _diag(spec, structure) else
             "UKS 关着（闭壳层）：没有磁化密度可混，这个参数不会被读"
             "（手册：`ALPHA_MAG`/`BETA_MAG` 只管自旋极化的 ispin=2 通道）"),
         "FORCE_EVAL/DFT/SCF/MIXING（+ FORCE_EVAL/DFT/UKS）",

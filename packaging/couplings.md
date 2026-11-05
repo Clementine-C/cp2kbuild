@@ -98,10 +98,10 @@
 | `added_mos` | `--added-mos` | 只有对角化路线（`--scf DIAGONALIZATION`，或带 k 点 / 开 SMEAR 时「自动」判定成它）才会用到（`qs_environment.F` 里是 `IF (.NOT. scf_control%use_ot)` 才读 ADDED_MOS） | `src/qs_environment.F:2129` |
 | `smear_method` | `--smear-method` | 没开 SMEAR（`&SMEAR` 段本身不会出现） | `FORCE_EVAL/DFT/SCF/SMEAR` |
 | `electronic_temperature` | `--electronic-temperature` | 没开 SMEAR：占据数不需要展宽，温度无人可设 | `FORCE_EVAL/DFT/SCF/SMEAR/ELECTRONIC_TEMPERATURE` |
-| `mixing_method` | `--mixing-method` | `&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，smearing 路线留给 CP2K 自己的默认混合 | `cp2kbuild/recipes.py:scf_section` |
-| `mixing_alpha` | `--mixing-alpha` | `&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，smearing 路线留给 CP2K 自己的默认混合 | `cp2kbuild/recipes.py:scf_section` |
-| `mixing_nbuffer` | `--mixing-nbuffer` | `&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，smearing 路线留给 CP2K 自己的默认混合 | `cp2kbuild/recipes.py:scf_section` |
-| `mixing_beta` | `--mixing-beta` | `&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，smearing 路线留给 CP2K 自己的默认混合 | `cp2kbuild/recipes.py:scf_section` |
+| `mixing_method` | `--mixing-method` | `&MIXING` 只写在对角化路线：OT 用自己的最小化器，不走密度混合。（开了 SMEAR 也在写——展宽只改占据数，不改密度怎么混） | `cp2kbuild/recipes.py:scf_section` |
+| `mixing_alpha` | `--mixing-alpha` | `&MIXING` 只写在对角化路线：OT 用自己的最小化器，不走密度混合。（开了 SMEAR 也在写——展宽只改占据数，不改密度怎么混） | `cp2kbuild/recipes.py:scf_section` |
+| `mixing_nbuffer` | `--mixing-nbuffer` | `&MIXING` 只写在对角化路线：OT 用自己的最小化器，不走密度混合。（开了 SMEAR 也在写——展宽只改占据数，不改密度怎么混） | `cp2kbuild/recipes.py:scf_section` |
+| `mixing_beta` | `--mixing-beta` | `&MIXING` 只写在对角化路线：OT 用自己的最小化器，不走密度混合。（开了 SMEAR 也在写——展宽只改占据数，不改密度怎么混） | `cp2kbuild/recipes.py:scf_section` |
 | `mixing_alpha_mag` | `--mixing-alpha-mag` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/SCF/MIXING（+ FORCE_EVAL/DFT/UKS）` |
 | `mixing_beta_mag` | `--mixing-beta-mag` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/SCF/MIXING（+ FORCE_EVAL/DFT/UKS）` |
 | `wfn_restart_file` | `--wfn-restart-file` | SCF_GUESS 不是 RESTART/HISTORY_RESTART：不需要指定波函数文件 | `FORCE_EVAL/DFT/WFN_RESTART_FILE_NAME` |

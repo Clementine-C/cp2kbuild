@@ -1090,15 +1090,30 @@ def main() -> int:
     generate.w_electronic_temperature.setValue(800.0)
     check(generate.w_electronic_temperature.isEnabled(),
           "开了 SMEAR 后电子温度可编辑")
-    check(not generate.w_mixing_alpha.isEnabled(),
-          "开了 SMEAR 后混合参数变灰（&MIXING 不会被写进去）")
+    # SMEAR 只改占据数，不改变密度怎么混：CP2K 自己的金属回归输入里 109 个带
+    # &SMEAR 的有 102 个同时写着 &MIXING，所以混合参数在这里**照样可用**
+    check(generate.w_mixing_alpha.isEnabled(),
+          "开了 SMEAR 后混合参数仍然可编辑（&MIXING 照样写进去）")
     compare("SMEAR + electronic temperature",
             ["new", "--task", "energy", "--structure", SILICON, "--smearing",
              "--electronic-temperature", "800", "--scf", "DIAGONALIZATION",
              "--stdout"])
+    check("&SMEAR" in generate.preview.toPlainText()
+          and "&MIXING" in generate.preview.toPlainText(),
+          "SMEAR 和 MIXING 同时出现（展宽不改密度混合）")
+    generate.w_mixing_alpha.setValue(0.2)
+    pump(120)
+    generate.refresh()
+    check("ALPHA 0.2" in generate.preview.toPlainText(),
+          "SMEAR 下把 α 调小也真的写进去")
+    compare("SMEAR + α 0.2",
+            ["new", "--task", "energy", "--structure", SILICON, "--smearing",
+             "--electronic-temperature", "800", "--scf", "DIAGONALIZATION",
+             "--mixing-alpha", "0.2", "--stdout"])
+    generate.w_mixing_alpha.setValue(0.4)
     generate.w_smearing.setChecked(False)
     check(not generate.w_mixing_alpha.isEnabled(),
-          "关掉 SMEAR 后「自动」路线回到 OT，混合参数仍灰（&MIXING 不会被写）")
+          "关掉 SMEAR 后「自动」路线回到 OT，混合参数才变灰")
     set_scf("DIAGONALIZATION")
     check(generate.w_mixing_alpha.isEnabled(),
           "显式选对角化后混合参数恢复可编辑")
@@ -2940,8 +2955,8 @@ def main() -> int:
     check(generate.w_added_mos.isEnabled() and generate.w_mixing_alpha.isEnabled(),
           "对角化路线下「空轨道数」和混合参数恢复可编辑")
     generate.w_smearing.setChecked(True)
-    check(not generate.w_mixing_alpha.isEnabled(),
-          "对角化 + SMEAR → 混合参数再次被灰掉")
+    check(generate.w_mixing_alpha.isEnabled(),
+          "对角化 + SMEAR → 混合参数仍然可编辑（&MIXING 与展宽无关）")
     generate.w_smearing.setChecked(False)
 
     set_task("band")

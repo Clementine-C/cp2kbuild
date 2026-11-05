@@ -1903,9 +1903,7 @@ class GenerateTab(QWidget):
         else:
             self.mixing_badge.setToolTip(HELP["mixing"].tooltip() + (
                 "\n\n当前走 OT：`&MIXING` 不会被写进输入文件。"
-                if uses_ot else
-                "\n\n当前开了 SMEAR：`&MIXING` 不会被写进输入文件，"
-                "CP2K 会用自己默认的混合参数。" if smearing else ""))
+                if uses_ot else ""))
         self._apply_couplings()
         # the k-point group explains itself relative to this route
         self._update_kpoint_hint()

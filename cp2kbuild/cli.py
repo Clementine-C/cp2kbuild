@@ -973,11 +973,12 @@ def _warn_unused_mixing(spec: Spec, args) -> None:
               file=sys.stderr)
         return
     route = effective_route(spec)
-    if route == "DIAGONALIZATION" and not spec.smearing:
+    if route == "DIAGONALIZATION":
+        # ``&MIXING`` is written on every diagonalisation run, smearing included:
+        # smearing changes the occupations, not how the density is mixed
         return
-    reason = ("SCF 走的是 OT（或系统判定为 OT）" if route != "DIAGONALIZATION"
-              else "开了 SMEAR（smearing 路线不写 &MIXING，用 CP2K 自己的默认混合）")
-    print(f"WARN  --mixing-* 不会生效：{reason}。", file=sys.stderr)
+    print("WARN  --mixing-* 不会生效：SCF 走的是 OT（或系统判定为 OT），"
+          "OT 用自己的最小化器、不走密度混合。", file=sys.stderr)
 
 
 def _mm_charge_args(entries: list[str]) -> list[tuple[str, float]]:

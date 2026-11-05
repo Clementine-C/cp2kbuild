@@ -383,7 +383,7 @@ CP2K 里大部分参数在别处是**静默无效**的：`ADDED_MOS` 在 OT 路�
 | 「自动」+ 普通绝缘体 | 显示 **OT** 框（自动判定结果写在块上方：`当前路线：OT（「自动」按任务和 SMEAR 现场判定）`） |
 | 「自动」+ 能带/态密度，或开了 SMEAR | 显示**对角化**框，OT 框消失 |
 | 走 OT 时 | 「空轨道数 ADDED_MOS」、`&MIXING` 的四个框一起灰掉——**OT 路线根本不读它们**（`ADDED_MOS` 在 CP2K 的 `qs_environment.F` 里就是 `.NOT. use_ot` 才生效；`&MIXING` 只写在对角化路线） |
-| 走对角化 + 关掉 SMEAR | 混合参数（方法/α/缓冲/β）恢复可编辑 |
+| 走对角化（含开了 SMEAR） | 混合参数（方法/α/缓冲/β）**可编辑**：`&MIXING` 与展宽互不影响——展宽只改占据数，密度怎么混是另一回事（CP2K 自己 109 个带 `&SMEAR` 的回归输入里有 102 个同时写着 `&MIXING`） |
 | `PRECONDITIONER` 改成 FULL_KINETIC/FULL_SINGLE/… | `ENERGY_GAP` 灰掉——只有 **FULL_ALL** 和 **FULL_SINGLE_INVERSE** 会读这个值 |
 | `MINIMIZER` 改成 CG/SD | `SAFE_DIIS` 灰掉（没有 DIIS 步要过滤） |
 | `LINESEARCH` 改成 NONE/ADAPT | `STEPSIZE` 灰掉（不做线搜索） |
@@ -1080,9 +1080,9 @@ python -m cp2kbuild new --help
 | `QS/METHOD` | ✅ | `--qs-method` | 只在全电子或研究芯电子时才用 GAPW（贵 2–5 倍） |
 | `MGRID/NGRIDS` | ✅ | `--ngrids` | 默认 4；改了要重做 CUTOFF/REL_CUTOFF 收敛 |
 | `SCF/ADDED_MOS` | ✅ | `--added-mos` | 对角化（k 点/SMEAR/能带/PDOS）时必须够，否则费米面附近不准 |
-| `SCF/&SMEAR` + 电子温度 | ✅ | `--smearing` `--electronic-temperature` | 金属/小带隙必用；开了会自动切对角化、且不写 `&MIXING` |
+| `SCF/&SMEAR` + 电子温度 | ✅ | `--smearing` `--electronic-temperature` | 金属/小带隙必用；开了会自动切对角化，`&MIXING` **照样写**（展宽只改占据数） |
 | `SCF/IGNORE_CONVERGENCE_FAILURE` | ✅ | `--ignore-convergence-failure` | 只比较**差值**时能用；要绝对能量、力、应力、MD 时不能用 |
-| `SCF/&MIXING` 的 α/缓冲/β | ✅ | `--mixing-alpha` `--mixing-nbuffer` `--mixing-beta` | 振荡就调小 α；金属常要 β；只在纯对角化路线生效 |
+| `SCF/&MIXING` 的 α/缓冲/β | ✅ | `--mixing-alpha` `--mixing-nbuffer` `--mixing-beta` | 振荡就调小 α；金属常要 β；只在对角化路线生效（含 SMEAR） |
 | `&COORD/SCALED`（分数坐标） | ✅ | `--scaled-coords` | 文献/CIF 给的分数坐标直接贴，不用换算；需要晶胞 |
 | `&THERMOSTAT/&NOSE\|&CSVR` TIMECON | ✅ | `--thermostat-timecon` | 100–1000 fs；太小会把真实振动动力学搅乱 |
 | `&BAROSTAT` TIMECON | ✅ | `--barostat-timecon` | 取恒温器的 5–10 倍；太小把晶胞压塌 |

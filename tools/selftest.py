@@ -1471,6 +1471,13 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
                           scf="DIAGONALIZATION", mixing_alpha=0.1,
                           mixing_nbuffer=16, mixing_beta=1.5),
          ["ALPHA 0.1", "NBUFFER 16", "BETA 1.5"]),
+        # SMEAR 只改占据数，不改密度怎么混：CP2K 自己的金属回归输入里 109 个带
+        # &SMEAR 的有 102 个同时写着 &MIXING，所以两者必须一起写出
+        ("SMEAR + MIXING 同时写出（展宽不改混合）", dict(
+            task="energy", structure=silicon, scf="DIAGONALIZATION",
+            added_mos=24, smearing=True, electronic_temperature=1000.0,
+            mixing_alpha=0.2, mixing_beta=1.0),
+         ["&SMEAR", "&MIXING", "ALPHA 0.2", "BETA 1.0", "ADDED_MOS 24"]),
         ("THERMOSTAT/BAROSTAT TIMECON", dict(
             task="md", structure=silicon, ensemble="NPT_I", thermostat="NOSE",
             steps=100, thermostat_timecon=250.0, barostat_timecon=1000.0),

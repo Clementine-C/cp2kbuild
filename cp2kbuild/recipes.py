@@ -1424,25 +1424,30 @@ def scf_section(spec: Spec, structure: Structure | None, setup: Setup,
         scf.add(diag)
         if spec.smearing:
             _add_smear(scf, spec)
-        else:
-            mixing = Section("MIXING")
-            mixing.set("METHOD", spec.mixing_method.upper())
-            mixing.set("ALPHA", float(spec.mixing_alpha))
-            mixing.set("NBUFFER", int(spec.mixing_nbuffer))
-            if spec.mixing_beta is not None:
-                mixing.set("BETA", float(spec.mixing_beta))
-            # the magnetization channel only exists in a spin-polarised run
-            # (manual: "for spin-polarized calculations, ispin=2 channel")
-            if effective_uks(spec):
-                if spec.mixing_alpha_mag is not None:
-                    mixing.set("ALPHA_MAG", float(spec.mixing_alpha_mag), comment=(
-                        "mixing fraction for the magnetization density (magnetic "
-                        "transition metals often converge better with 0.8-1.6)"))
-                if spec.mixing_beta_mag is not None:
-                    mixing.set("BETA_MAG", float(spec.mixing_beta_mag), comment=(
-                        "Kerker damping for the magnetization channel; 0 disables "
-                        "it, which avoids suppressing long-range magnetic order"))
-            scf.add(mixing)
+        # ``&MIXING`` belongs to *every* diagonalisation run, smearing included:
+        # smearing changes the occupations, not how the density is mixed.  CP2K's
+        # own smeared regression inputs carry both (102 of the 109 ``&SMEAR``
+        # inputs under tests/QS also write ``&MIXING``), so gating it on
+        # "no smearing" silently dropped the user's ALPHA/BETA/NBUFFER for
+        # exactly the metallic systems that need them most.
+        mixing = Section("MIXING")
+        mixing.set("METHOD", spec.mixing_method.upper())
+        mixing.set("ALPHA", float(spec.mixing_alpha))
+        mixing.set("NBUFFER", int(spec.mixing_nbuffer))
+        if spec.mixing_beta is not None:
+            mixing.set("BETA", float(spec.mixing_beta))
+        # the magnetization channel only exists in a spin-polarised run
+        # (manual: "for spin-polarized calculations, ispin=2 channel")
+        if effective_uks(spec):
+            if spec.mixing_alpha_mag is not None:
+                mixing.set("ALPHA_MAG", float(spec.mixing_alpha_mag), comment=(
+                    "mixing fraction for the magnetization density (magnetic "
+                    "transition metals often converge better with 0.8-1.6)"))
+            if spec.mixing_beta_mag is not None:
+                mixing.set("BETA_MAG", float(spec.mixing_beta_mag), comment=(
+                    "Kerker damping for the magnetization channel; 0 disables "
+                    "it, which avoids suppressing long-range magnetic order"))
+        scf.add(mixing)
         # the outer loop is CP2K's own (default MAX_SCF 50); write it only when
         # the user asks for something specific, so default output is untouched
         if spec.outer_max_scf is not None or spec.outer_eps_scf is not None \
