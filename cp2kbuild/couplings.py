@@ -28,7 +28,7 @@ from typing import Callable
 from .recipes import (CELL_ANNEALING_ENSEMBLES, Spec, THERMOSTATTED_ENSEMBLES,
                       VELOCITY_ANNEALING_ENSEMBLES, coordinates_are_inline,
                       effective_route, is_classical, mm_route,
-                      poisson_solvers_for)
+                      poisson_solvers_for, writes_kpoints)
 
 MOTION_TASKS = ("md", "geo_opt", "cell_opt")
 CELL_ENSEMBLES = ("NPT_I", "NPT_F", "NPT_IA", "NPE_I", "NPE_F", "MSST",
@@ -539,6 +539,20 @@ RULES += (
             "没有周期性晶胞：k 点采样无意义"),
         "FORCE_EVAL/DFT/KPOINTS/KPOINT",
         flags=("--kpoint-point",),
+    ),
+    #: ``WAVEFUNCTIONS`` describes how a ``&KPOINTS`` block stores its
+    #: wavefunctions; without that block CP2K runs a single Γ point and the
+    #: keyword is not written at all (it used to conjure the whole section).
+    Rule(
+        "kpoint_wavefunctions",
+        lambda spec, structure: writes_kpoints(spec),
+        lambda spec, structure: (
+            "没有写 `&KPOINTS` 段：CP2K 只算 Γ 点一个 k 点，"
+            "「波函数形式」没有意义（自动的时候网格 k 点会写 COMPLEX、"
+            "Γ/特殊点才写 REAL）"
+            if not writes_kpoints(spec) else ""),
+        "FORCE_EVAL/DFT/KPOINTS/WAVEFUNCTIONS",
+        flags=("--kpoint-wavefunctions",),
     ),
     # ---------------- metadynamics ----------------
     #: The whole ``&COLVAR``/``&METADYN`` pair belongs to an MD run: the bias is

@@ -2202,11 +2202,23 @@ HELP: dict[str, Help] = {
         section="FORCE_EVAL/DFT/KPOINTS", keyword="SYMMETRY"),
     "kpoint_wavefunctions": Help(
         "`&KPOINTS WAVEFUNCTIONS`：波函数按实数还是复数存。\n"
-        "• **REAL**（工具默认）——能实时用实数，省内存和时间；"
-        "CP2K 手册说只要 k 点允许就自动用实波函数；\n"
-        "• **COMPLEX**——CP2K 自己的默认。自旋轨道耦合、"
-        "以及某些带非平凡相位的 k 点对称性必须用它。\n"
-        "不确定就先用 REAL；出现与相位/自旋轨道相关的怪问题再换 COMPLEX。",
+        "**自动（默认）**：Γ 点、以及分量都是 0/0.5 的特殊点才写 `REAL`，"
+        "其余（任何 k 点网格）写 `COMPLEX`。这是按 CP2K 自己的判据算的，"
+        "所以生成出来的输入不会让 CP2K 打「证明不了实波函数」的警告。\n"
+        "两档的区别：\n"
+        "• **REAL**——省一半内存和时间，但只有实 Bloch 相位才成立"
+        "（手册：\"REAL wavefunctions can only represent Gamma or special k-points "
+        "and symmetry operations with real Bloch phases\"）；\n"
+        "• **COMPLEX**——CP2K 自己的默认（`default_i_val=use_complex_wfn`），"
+        "一般 k 点网格必须用它（手册：\"Use COMPLEX for general atomic k-point "
+        "symmetries with nontrivial phases\"）。\n"
+        "为什么不能随便选 REAL：CP2K 在 `kpoint_initialize`（`kpoint_methods.F`）里"
+        "逐个 k 点检查分量是不是 0/0.5，不是的话只打一条警告就继续算"
+        "（\"We could not determine if the symmetry of the system allows real "
+        "wavefunctions\"）——不中止，但结果可能是错的。\n"
+        "注意：这和自旋轨道耦合不是一回事。CP2K 的 SOC 是后处理的"
+        "`&FORCE_EVAL/&PROPERTIES/&BANDSTRUCTURE/&SOC`（只支持 GTH 赝势、"
+        "从 Γ 点 SCF 出发的扰动式能带），和这里的 k 点波函数形式没有联动关系。",
         section="FORCE_EVAL/DFT/KPOINTS", keyword="WAVEFUNCTIONS"),
     "kpoint_verbose": Help(
         "`&KPOINTS VERBOSE T`：在输出里把生成/约化后的 k 点列表打出来。\n"

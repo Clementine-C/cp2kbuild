@@ -115,6 +115,20 @@ def _bool_word(value) -> bool:
         "T", "TRUE", "ON", "YES", "1")
 
 
+def _kpoints_are_special(tokens, points) -> bool:
+    """Whether ``&KPOINTS WAVEFUNCTIONS REAL`` is provable for this k-point set.
+
+    CP2K's own test (``kpoint_methods.F``, ``kpoint_initialize``) accepts a
+    k-point only when every component is 0 or 0.5; anything else is "cannot
+    determine" and gets a warning.  The same rule as the generator's, so the
+    tool cannot claim REAL is fine while writing it.
+    """
+    from .recipes import kpoint_set_is_special
+
+    return kpoint_set_is_special([str(token) for token in tokens],
+                                 [list(point) for point in points])
+
+
 def section_enabled(section: Section) -> bool:
     """False when the section parameter switches the block off (&OT OFF)."""
     parameter = section.parameter
@@ -2160,13 +2174,40 @@ class Validator:
                       "FULL_GRID T：用整个网格而不做对称约化，"
                       "k 点数和耗时都会成倍增加（Wannier/输运这类需要完整网格时才对）",
                       path="CP2K_INPUT/FORCE_EVAL/DFT/KPOINTS")
-        if kpoints.get("WAVEFUNCTIONS") is not None \
-                and _enum_word(kpoints.get("WAVEFUNCTIONS")) == "COMPLEX" \
-                and section_enabled(kpoints):
-            self._add("info", "kpoint-complex-wavefunctions",
-                      "WAVEFUNCTIONS COMPLEX：波函数按复数列处理（自旋轨道耦合才需要），"
-                      "内存和耗时都比 REAL 高",
-                      path="CP2K_INPUT/FORCE_EVAL/DFT/KPOINTS")
+        if section_enabled(kpoints):
+            wavefunctions = _enum_word(kpoints.get("WAVEFUNCTIONS"))
+            point_values = []
+            for keyword in points:
+                values = keyword.values or ()
+                if len(values) >= 3:
+                    try:
+                        point_values.append(tuple(float(v) for v in values[:3]))
+                    except (TypeError, ValueError):
+                        point_values = []
+                        break
+            if wavefunctions == "COMPLEX":
+                self._add(
+                    "info", "kpoint-complex-wavefunctions",
+                    "WAVEFUNCTIONS COMPLEX：波函数按复数列处理。这是 CP2K 自己的默认，"
+                    "一般的 k 点网格（k 与 −k 的相位不是 ±1）必须用它；"
+                    "内存和耗时比 REAL 高",
+                    path="CP2K_INPUT/FORCE_EVAL/DFT/KPOINTS",
+                    hint="只有 Γ 点和分量都是 0/0.5 的特殊点才能证明实波函数成立，"
+                         "那时写 REAL 可以省一半内存")
+            elif wavefunctions == "REAL":
+                provable = _kpoints_are_special(tokens, point_values)
+                if not provable:
+                    self._add(
+                        "warning", "kpoint-real-wavefunctions",
+                        "WAVEFUNCTIONS REAL：这个 k 点集证明不了实波函数成立"
+                        "（只有 Γ 点和分量 0/0.5 的特殊点能证明），"
+                        "CP2K 会打警告（`kpoint_initialize`："
+                        "\"We could not determine if the symmetry of the system "
+                        "allows real wavefunctions\"），结果可能不对",
+                        path="CP2K_INPUT/FORCE_EVAL/DFT/KPOINTS",
+                        hint="改成 COMPLEX（CP2K 的默认）就不会有这个问题；"
+                             "真要用 REAL 就只用 Γ 点/特殊点",
+                    )
 
     def _check_molden(self, dft: Section, kpoints: Section | None,
                       subsys: Section | None) -> None:

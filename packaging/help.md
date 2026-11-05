@@ -1369,7 +1369,8 @@ CV 的类型。选哪一个取决于你想让体系越过的是什么：
 **PLUMED 的偏置**（`METAD`）：这一栏填的是 PLUMED 自己的单位——`HEIGHT` 是 **kJ/mol**（不是 Hartree；1 mHartree ≈ 2.6255 kJ/mol）、`SIGMA` 是 **nm**（不是 Å）、`PACE` 是**MD 步**。
 • `PACE` —— 每多少个 MD 步撒一个丘陵；
 • `HEIGHT` —— 每个丘陵的高度；太小推不动、太大自由能面粗糙（0.5–2 kJ/mol 是常见的起点量级）；
-• `默认 SIGMA` —— 丘陵宽度，给那些自己没有 σ 的 CV 用（CV 表里可以单独填）；它在 PLUMED 里是**必填项**，没有默认值；
+• `默认 SIGMA` —— 丘陵宽度，给那些自己没有 σ 的 CV 用（CV 表最后一列写着每个 CV 用的是自己的 σ 还是「默认」，双击那一行可以单独填）；它在 PLUMED 里是**必填项**，没有默认值。
+  PLUMED 的规则是**每个 `ARG` 一个值**（`MetaD.cpp`：个数对不上就报 "number of arguments does not match number of SIGMA parameters"），所以二维偏置要写 `SIGMA=0.15,0.5`；工具按 CV 个数铺开，「该 CV 的 SIGMA」填的就是那一维的值。开了 `ADAPTIVE` 则相反——**只能给一个数**（宽度由 PLUMED 自己算：`If you choose ADAPTIVE you need only one sigma`），那时表里单独设的 σ 会被忽略（面板会点出来）；
 • `TEMP` —— 体系温度，只有井温（`BIASFACTOR`）才需要；留空就用「生成输入」页的模拟温度；
 • `BIASFACTOR` —— 大于 1 就打开井温元动力学（丘陵越填越矮）；留空 = 普通元动力学；
 • `FILE` —— 丘陵文件（默认 `HILLS`）：**接着跑和画自由能面都靠它**；
@@ -2175,9 +2176,12 @@ CP2K 的 `FULL_GRID` 默认是 F。
 *标识*：`kpoint_wavefunctions`
 
 `&KPOINTS WAVEFUNCTIONS`：波函数按实数还是复数存。
-• **REAL**（工具默认）——能实时用实数，省内存和时间；CP2K 手册说只要 k 点允许就自动用实波函数；
-• **COMPLEX**——CP2K 自己的默认。自旋轨道耦合、以及某些带非平凡相位的 k 点对称性必须用它。
-不确定就先用 REAL；出现与相位/自旋轨道相关的怪问题再换 COMPLEX。
+**自动（默认）**：Γ 点、以及分量都是 0/0.5 的特殊点才写 `REAL`，其余（任何 k 点网格）写 `COMPLEX`。这是按 CP2K 自己的判据算的，所以生成出来的输入不会让 CP2K 打「证明不了实波函数」的警告。
+两档的区别：
+• **REAL**——省一半内存和时间，但只有实 Bloch 相位才成立（手册："REAL wavefunctions can only represent Gamma or special k-points and symmetry operations with real Bloch phases"）；
+• **COMPLEX**——CP2K 自己的默认（`default_i_val=use_complex_wfn`），一般 k 点网格必须用它（手册："Use COMPLEX for general atomic k-point symmetries with nontrivial phases"）。
+为什么不能随便选 REAL：CP2K 在 `kpoint_initialize`（`kpoint_methods.F`）里逐个 k 点检查分量是不是 0/0.5，不是的话只打一条警告就继续算（"We could not determine if the symmetry of the system allows real wavefunctions"）——不中止，但结果可能是错的。
+注意：这和自旋轨道耦合不是一回事。CP2K 的 SOC 是后处理的`&FORCE_EVAL/&PROPERTIES/&BANDSTRUCTURE/&SOC`（只支持 GTH 赝势、从 Γ 点 SCF 出发的扰动式能带），和这里的 k 点波函数形式没有联动关系。
 
 手册：<https://manual.cp2k.org/cp2k-2026_2-branch/CP2K_INPUT/FORCE_EVAL/DFT/KPOINTS.html#CP2K_INPUT.FORCE_EVAL.DFT.KPOINTS.WAVEFUNCTIONS>
 

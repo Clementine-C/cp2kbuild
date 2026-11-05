@@ -200,7 +200,7 @@ def main() -> int:
         generate.w_kpoint_full_grid.setChecked(False)
         generate.w_kpoint_symmetry.setChecked(True)
         generate.w_kpoint_verbose.setChecked(False)
-        generate.w_kpoint_wavefunctions.setCurrentText("REAL")
+        generate._set_widget_value(generate.w_kpoint_wavefunctions, "")   # 自动
         generate.w_mo_cubes.setChecked(False)
         generate.w_mo_cubes_nhomo.setValue(1)
         generate.w_mo_cubes_nlumo.setValue(0)
@@ -1880,6 +1880,33 @@ def main() -> int:
     check("MONKHORST-PACK" in generate.kpoint_hint.text()
           or "GAMMA" in generate.kpoint_hint.text(),
           f"说明里给出了将写出的方案：{generate.kpoint_hint.text()!r}")
+    # 波函数形式：默认「自动」，按 k 点集自己决定（网格 → COMPLEX，Γ/特殊点 → REAL）
+    check(generate.w_kpoint_wavefunctions.currentData() == "",
+          f"波函数形式的默认是「自动」：{generate.w_kpoint_wavefunctions.currentText()!r}")
+    check("WAVEFUNCTIONS COMPLEX" in text
+          and "波函数形式：自动 → 写 `WAVEFUNCTIONS COMPLEX`"
+          in generate.kpoint_hint.text(),
+          f"网格 k 点自动写 COMPLEX 并说明原因："
+          f"{generate.preview.toPlainText()[:0]}{generate.kpoint_hint.text()[-80:]!r}")
+    generate.w_kpoint_wavefunctions.setCurrentText("REAL")
+    pump(30)
+    generate._update_kpoint_hint()
+    check("证明不了" in generate.kpoint_hint.text()
+          and "kpoint_initialize" in generate.kpoint_hint.text(),
+          f"手动选 REAL 会明说 CP2K 证明不了：{generate.kpoint_hint.text()[-90:]!r}")
+    # 取消勾选之后，残留的 REAL/COMPLEX 不能再把 &KPOINTS 段带出来
+    generate.kpoint_box.setChecked(False)
+    pump(60)
+    generate.refresh()
+    check("&KPOINTS" not in generate.preview.toPlainText(),
+          "取消勾选后预览里没有 &KPOINTS（残留的波函数形式不会凭空造出这一段）")
+    compare("取消勾选 k 点（波函数形式仍是 REAL）",
+            ["new", "--task", "energy", "--structure", SILICON, "--stdout"])
+    check(not generate.w_kpoint_wavefunctions.isEnabled(),
+          "没写 &KPOINTS 时「波函数形式」是灰的")
+    generate.kpoint_box.setChecked(True)
+    generate._set_widget_value(generate.w_kpoint_wavefunctions, "")
+    pump(60)
 
     generate.w_kpoint_gamma_centered.setChecked(True)
     generate.w_kpoint_full_grid.setChecked(True)
@@ -1908,7 +1935,7 @@ def main() -> int:
     generate.w_kpoint_full_grid.setChecked(False)
     generate.w_kpoint_gamma_centered.setChecked(False)
     generate.w_kpoint_verbose.setChecked(False)
-    generate.w_kpoint_wavefunctions.setCurrentText("REAL")
+    generate._set_widget_value(generate.w_kpoint_wavefunctions, "")     # 自动
     generate._set_widget_value(generate.w_kpoint_scheme, "GENERAL")
     generate.w_kpoint_points.setRowCount(0)
     generate.w_kpoint_points.add_row(["0.0", "0.0", "0.0", "1.0"])
@@ -1918,6 +1945,9 @@ def main() -> int:
     check("KPOINT 0.0 0.0 0.0 1.0" in generate.preview.toPlainText()
           and "SCHEME GENERAL" in generate.preview.toPlainText(),
           "显式 k 点写成一串 KPOINT 行")
+    check("WAVEFUNCTIONS REAL" in generate.preview.toPlainText()
+          and "实波函数成立" in generate.kpoint_hint.text(),
+          f"全是 Γ/特殊点时代自动写 REAL：{generate.kpoint_hint.text()[-70:]!r}")
     check("SYMMETRY" in generate.kpoint_hint.text(),
           f"提醒 SYMMETRY 会约化显式 k 点：{generate.kpoint_hint.text()!r}")
     compare("显式 k 点（GENERAL）",

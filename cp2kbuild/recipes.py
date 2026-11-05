@@ -692,8 +692,9 @@ class Spec:
     kpoint_full_grid: bool = False
     #: ``&KPOINTS SYMMETRY`` - the tool writes ``T`` (CP2K's own default is F)
     kpoint_symmetry: bool = True
-    #: ``&KPOINTS WAVEFUNCTIONS`` - the tool writes REAL (CP2K's default COMPLEX)
-    kpoint_wavefunctions: str = "REAL"       # REAL | COMPLEX
+    #: ``&KPOINTS WAVEFUNCTIONS`` - empty means "auto": REAL when the k-point
+    #: set proves it (Γ / special points), COMPLEX otherwise (CP2K's default)
+    kpoint_wavefunctions: str = ""            # "" | REAL | COMPLEX
     #: ``&KPOINTS VERBOSE T``: list the k-points in the output
     kpoint_verbose: bool = False
     pdos_ldos: list[list[int]] = field(default_factory=list)
@@ -2012,9 +2013,79 @@ def force_eval_section(spec: Spec, setup: Setup, structure: Structure | None,
 
 #: ``&KPOINTS UNITS`` values, from ``input_cp2k_kpoints.F``.
 KPOINT_UNITS = ("B_VECTOR", "CART_ANGSTROM", "CART_BOHR")
-#: ``&KPOINTS WAVEFUNCTIONS``: REAL is what a viewer/band structure wants, but a
-#: system with spin-orbit coupling needs COMPLEX (CP2K's own default).
+#: ``&KPOINTS WAVEFUNCTIONS``: REAL is only provable for Γ / special points
+#: (every component 0 or 0.5); CP2K's own default is COMPLEX.
 KPOINT_WAVEFUNCTIONS = ("REAL", "COMPLEX")
+
+#: a k-point component is "special" when it is 0 or 0.5 (in reciprocal-lattice
+#: units): ``kpoint_initialize`` in ``kpoint_methods.F`` only accepts those as
+#: proof that real wavefunctions are possible
+_SPECIAL_COMPONENTS = (0.0, 0.5, -0.5)
+
+
+def kpoint_is_special(point, tolerance: float = 1e-9) -> bool:
+    """Whether one k-point has only 0/±0.5 components (real-wfn provable)."""
+    try:
+        coords = [float(v) for v in list(point)[:3]]
+    except (TypeError, ValueError):
+        return False
+    return all(any(abs(c - s) <= tolerance for s in _SPECIAL_COMPONENTS)
+               for c in coords)
+
+
+def kpoint_set_is_special(scheme_tokens: "Sequence[str]",
+                          points: "Sequence") -> bool:
+    """Whether the *whole* k-point set admits real wavefunctions.
+
+    ``True`` only for Γ alone (one point, all components 0) or an explicit list
+    whose every point is a Γ/special point.  A Monkhorst-Pack/MacDonald mesh is
+    *not* proven: its points (±1/(2N), ...) are not special, which is exactly
+    the case CP2K cannot decide either (it warns, ``kpoint_methods.F``).
+    """
+    if points:
+        return all(kpoint_is_special(point) for point in points)
+    head = (scheme_tokens[0].upper() if scheme_tokens else "GAMMA")
+    if head == "GAMMA":
+        return True
+    if head in ("MONKHORST-PACK", "MACDONALD"):
+        numbers = [t for t in scheme_tokens[1:] if str(t).isdigit()]
+        # a 1x1x1 mesh is Γ alone; anything denser has points CP2K cannot prove
+        return bool(numbers) and all(int(n) == 1 for n in numbers)
+    return head == "GENERAL"
+
+
+def kpoint_wavefunction_choice(spec: "Spec", structure: "Structure | None"
+                               ) -> tuple[str, bool]:
+    """``(what ``WAVEFUNCTIONS`` will say, whether the k-point set proves REAL)``.
+
+    One function so the writer, the interface hint and the self-test cannot
+    disagree about which of the two values comes out.
+    """
+    points = list(spec.kpoint_points or ())
+    tokens = (spec.kpoint_scheme or "").split()
+    if not points and not tokens:
+        spacing = spec.kpoint_spacing or 20.0
+        grid = spec.kpoint_grid or suggest_kpoint_grid(
+            structure.cell if structure else None, spacing)
+        tokens = ["GAMMA"] if tuple(int(n) for n in grid) == (1, 1, 1) \
+            else ["MONKHORST-PACK"] + [str(n) for n in grid]
+    special = kpoint_set_is_special(tokens, points)
+    chosen = (spec.kpoint_wavefunctions or "").strip().upper()
+    if chosen in KPOINT_WAVEFUNCTIONS:
+        return chosen, special
+    return ("REAL" if special else "COMPLEX"), special
+
+
+def effective_wavefunctions(spec: "Spec", structure: "Structure | None") -> str:
+    """What ``&KPOINTS WAVEFUNCTIONS`` will be written: REAL or COMPLEX.
+
+    ``spec.kpoint_wavefunctions`` may be empty ("auto"): then REAL is written
+    only when the k-point set proves it (Γ / special points), COMPLEX otherwise
+    - which is also CP2K's own default, so an auto input never carries a value
+    CP2K would warn about.  An explicit choice is kept as typed; the validator
+    warns when an explicit REAL cannot be proven.
+    """
+    return kpoint_wavefunction_choice(spec, structure)[0]
 
 
 def writes_kpoints(spec: Spec) -> bool:
@@ -2025,6 +2096,11 @@ def writes_kpoints(spec: Spec) -> bool:
     any of them the section is left out and CP2K uses its own default - a single
     Gamma point - which is what a molecule or a large cell wants.
 
+    ``WAVEFUNCTIONS`` deliberately does **not** count: it describes how a
+    ``&KPOINTS`` block stores its wavefunctions, so a leftover REAL/COMPLEX in
+    the form used to conjure an entire ``&KPOINTS`` section (and a ``.kp``
+    restart file) out of nothing.
+
     This is also what decides whether the SCF restart file is ``.kp`` or
     ``.wfn``, so the two can never disagree.
     """
@@ -2033,7 +2109,6 @@ def writes_kpoints(spec: Spec) -> bool:
     return bool(spec.kpoint_grid or spec.kpoint_scheme or spec.kpoint_points
                 or spec.kpoint_spacing or spec.kpoint_full_grid
                 or spec.kpoint_gamma_centered or spec.kpoint_verbose
-                or (spec.kpoint_wavefunctions or "REAL").upper() != "REAL"
                 or not spec.kpoint_symmetry)
 
 
@@ -2108,12 +2183,22 @@ def kpoints_section(spec: Spec, structure: Structure | None) -> Section:
     section.set("SYMMETRY", bool(spec.kpoint_symmetry), comment=(
         "reduce the mesh with the crystal symmetry" if spec.kpoint_symmetry
         else "no symmetry reduction: CP2K uses every point of the mesh"))
-    wavefunctions = (spec.kpoint_wavefunctions or "REAL").upper()
-    if wavefunctions not in KPOINT_WAVEFUNCTIONS:
-        wavefunctions = "REAL"
-    section.set("WAVEFUNCTIONS", wavefunctions, comment=(
-        "real wavefunctions are enough unless the k-point set needs phases "
-        "(spin-orbit coupling); CP2K's own default is COMPLEX"))
+    wavefunctions = effective_wavefunctions(spec, structure)
+    # ``special`` comes from the same function, so the comment cannot disagree
+    # with the value it annotates
+    special = kpoint_wavefunction_choice(spec, structure)[1]
+    if wavefunctions == "REAL":
+        comment = ("REAL is provable here: every k-point is Γ or a special point "
+                   "(components 0/0.5)" if special
+                   else "REAL was asked for explicitly - CP2K warns when it cannot "
+                        "prove this k-point set allows real wavefunctions")
+    else:
+        comment = ("COMPLEX (CP2K's default) - a mesh k-point set does not prove "
+                   "that real wavefunctions are possible"
+                   if not special else
+                   "computed wavefunctions are complex even though this k-point "
+                   "set would allow real ones")
+    section.set("WAVEFUNCTIONS", wavefunctions, comment=comment)
     if spec.kpoint_verbose:
         section.set("VERBOSE", True, comment="list the k-points in the output")
     return section

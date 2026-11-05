@@ -417,8 +417,28 @@ CP2K 里大部分参数在别处是**静默无效**的：`ADDED_MOS` 在 OT 路�
 | GAMMA_CENTERED | `GAMMA_CENTERED` | 把网格平移到含 Γ 点 |
 | FULL_GRID | `FULL_GRID` | 用整个网格、不做对称约化（Wannier/输运才需要；**只影响有没有那个 k 点，不影响精度**） |
 | SYMMETRY | `SYMMETRY` | 工具默认 `T`（CP2K 默认 `F`）：约化后机时少得多，结果一致 |
-| 波函数形式 | `WAVEFUNCTIONS` | `REAL`（工具默认）/ `COMPLEX`（自旋轨道耦合） |
+| 波函数形式 | `WAVEFUNCTIONS` | **自动**（默认）/ `REAL` / `COMPLEX`；见下 |
 | VERBOSE | `VERBOSE` | 在输出里列出 k 点与权重 |
+
+**波函数形式为什么默认是「自动」**：CP2K 只有在每个 k 点分量都是 0 或 0.5 时
+（Γ 点、以及所谓的特殊点）才能证明实波函数成立；其它情况它在
+`kpoint_initialize`（`kpoint_methods.F`）里只打一条警告就继续算
+（"We could not determine if the symmetry of the system allows real wavefunctions"）——
+**不中止，但结果可能是错的**。手册原话是 "REAL wavefunctions can only represent Gamma or
+special k-points and symmetry operations with real Bloch phases"，而 CP2K 自己的默认是
+`COMPLEX`（`default_i_val=use_complex_wfn`）。所以：
+
+* 「自动」时工具按同一套判据自己决定：Γ 点/特殊点 → 写 `REAL`，**任何网格 → 写 `COMPLEX`**，
+  生成的输入不会再带这条 CP2K 警告；说明行会写明"将写哪一个、为什么"。
+* 手动选 `REAL` 而 k 点集证明不了时，说明行直接标警告，校验器同时给
+  `kpoint-real-wavefunctions`（指向 `kpoint_initialize`）。
+* 「波函数形式」**只描述 `&KPOINTS` 段**：不勾这一组时它没有意义（控件灰显，
+  「?」里写明原因），也**不会**再像以前那样凭一个残留的 `COMPLEX` 凭空写出整个
+  `&KPOINTS` 段（还带默认 4×4×4 网格）并把 SCF 的 restart 文件改成 `.kp`。
+* 它和**自旋轨道耦合不是一回事**：CP2K 的 SOC 是后处理
+  `&FORCE_EVAL/&PROPERTIES/&BANDSTRUCTURE/&SOC`（只支持 GTH 赝势、从 Γ 点 SCF 出发的
+  扰动式能带；源码 `input_cp2k_properties_dft.F` 的 `create_soc_section`），
+  工具目前不写这个段。
 
 下面的说明行会**算出将写出什么**：自动网格会写"按间距 20 Å → `MONKHORST-PACK 4 4 4`（共 64 个点，
 对称约化后更少）"；显式 k 点还会提醒"SYMMETRY 还开着会做约化"。校验器另外会给
@@ -1902,6 +1922,8 @@ dist\cp2kbuild-gui-2026.2.exe --selftest gui_report.json
 
 | 症状 | 根因 |
 |---|---|
+| 只把「波函数形式」改成 `COMPLEX`（没勾 k 点），生成的输入却多出一整个 `&KPOINTS` 段（还带默认 `MONKHORST-PACK 4 4 4`），SCF 的 restart 文件也从 `.wfn` 变成 `.kp` | `writes_kpoints()` 把 `WAVEFUNCTIONS != REAL` 也算成"要写 k 点"：一个只管**怎么存**波函数的关键字被当成了"要采布里渊区"。现在它不参与这个判定，且控件在不勾 k 点时灰显（`couplings.py` 的规则说明为什么） |
+| 每个 k 点网格的输入都写 `WAVEFUNCTIONS REAL`，CP2K 每次都打 "could not determine if the symmetry of the system allows real wavefunctions" | 默认写 REAL，但 CP2K 只在分量全为 0/0.5 的 Γ/特殊点才能证明实波函数（`kpoint_initialize`），而它的默认是 COMPLEX。改成「自动」：Γ/特殊点写 REAL，网格写 COMPLEX；手动选 REAL 而证明不了时，说明行与校验器（`kpoint-real-wavefunctions`）都点出来 |
 | 从 MD 切到单点能/几何优化，参数面板中间留一大段空白 | 任务页原来装在 `QStackedWidget` 里，而 Qt 是按**最高**的那一页给 stack 定尺寸、切页时又不会重新问 `sizeHint`：MD 页 ~2100 px（温度程序表 + 打印键 + 元动力学），单点能页只有 73 px → 差出来的 ~2000 px 就是空白。改成"隐藏其它页、只显示当前页"（隐藏的控件不参与布局），并在切页时主动跑一次布局；自测里对每个任务断言"只显示自己、且下面没有多余空白" |
 | 第 2 步（扫 REL_CUTOFF）的曲线其实是一条 CUTOFF 曲线，`count for grid` 全是"全部落在最细网格" | `rel_cutoff_inputs.sh` 的两行 `sed` 照抄了第 1 步：`LT_cutoff` 拿了循环值、`LT_rel_cutoff` 拿了固定值。每个目录里 `CUTOFF=<目录名>`、`REL_CUTOFF=某固定值`——用户从 `.out` 里贴出 `cutoff [a.u.] 5.00`（=10 Ry，正好等于那一档的目录名 10）才定位到；现在两行按"扫谁谁拿 `${ii}`"生成，并逐个目录断言 |
 | 每一档都在输入检查阶段 `[ABORT] The specified OLD file <cp2k-1_40000.restart> cannot be opened` | 源输入（或生成页的接力设置）里的 `&EXT_RESTART` 被原样带进了 `template.inp`：网格扫描根本不该接力，而那个 restart 文件在集群上不存在。现在两条通道都把这一段整段注释掉（原文保留），`@INCLUDE` 里的那种会点名让用户自己删 |

@@ -54,7 +54,8 @@ from .cutoffkit import (DEFAULT_CUTOFFS, DEFAULT_FIXED_REL_CUTOFF,
 from .recipes import (COORD_SUFFIX_FORMAT, EXT_RESTART_TAKES, MM_ROUTES, TASKS,
                       BuildResult,
                       MmLennardJones, MmMolecule, Spec, build, effective_route,
-                      is_classical, lennard_jones_pairs, mm_route,
+                      is_classical, kpoint_wavefunction_choice, lennard_jones_pairs,
+                      mm_route,
                       poisson_solver_note, poisson_solvers_for, prepare_structure,
                       reads_as_cp2k_input, restart_summary, suggest_kpoint_grid)
 from .structures import Structure, parse_cell_text, read_structure
@@ -157,7 +158,10 @@ KPOINT_SCHEMES = [("自动（按网格/间距）", None), ("GAMMA", "GAMMA"),
                   ("MACDONALD", "MACDONALD"), ("GENERAL（显式 k 点）", "GENERAL"),
                   ("自定义文本", "custom")]
 KPOINT_UNIT_CHOICES = ["B_VECTOR", "CART_ANGSTROM", "CART_BOHR"]
-KPOINT_WAVEFUNCTION_CHOICES = ["REAL", "COMPLEX"]
+#: ``&KPOINTS WAVEFUNCTIONS``: the default is「自动」because REAL is only provable
+#: for Γ / special points; the writer picks and the hint says which one comes out
+KPOINT_WAVEFUNCTION_CHOICES = [("自动", ""), ("REAL", "REAL"),
+                               ("COMPLEX", "COMPLEX")]
 BAND_TYPES = ["CI-NEB", "IT-NEB", "B-NEB", "D-NEB", "SM", "EB"]
 LATTICES = [("自动判断", None), ("简单立方 cub", "cub"), ("面心立方 fcc", "fcc"),
             ("体心立方 bcc", "bcc"), ("六方 hex", "hex"), ("四方 tet", "tet"),
@@ -3178,7 +3182,8 @@ class GenerateTab(QWidget):
         self.w_kpoint_symmetry.setChecked(True)
         self.w_kpoint_verbose = QCheckBox("VERBOSE（在输出里列出 k 点）")
         self.w_kpoint_wavefunctions = QComboBox()
-        self.w_kpoint_wavefunctions.addItems(KPOINT_WAVEFUNCTION_CHOICES)
+        for label, data in KPOINT_WAVEFUNCTION_CHOICES:
+            self.w_kpoint_wavefunctions.addItem(label, data)
         for widget in (self.w_kpoint_gamma_centered, self.w_kpoint_full_grid,
                        self.w_kpoint_symmetry, self.w_kpoint_verbose):
             widget.toggled.connect(self._update_kpoint_hint)
@@ -3324,6 +3329,19 @@ class GenerateTab(QWidget):
             return
         note = getattr(self, "_kpoint_note", None)
         ot = (self.w_scf.currentData() or "auto") == "OT"
+        # 「波函数形式」 is part of what the section will say, so every branch below
+        # ends with which of REAL/COMPLEX comes out and why (one place, no drift).
+        # ``set_hint`` is shadowed on purpose: the branches below keep calling it
+        # by name, and the wrapper appends the wavefunction sentence.
+        wave_note = self._wavefunction_note() \
+            if getattr(self, "kpoint_box", None) is not None \
+            and self.kpoint_box.isChecked() else ""
+        base_set_hint = globals()["set_hint"]
+
+        def set_hint(label, text: str, level: str | None = None) -> None:
+            if wave_note:
+                text = f"{text}\n{wave_note}"
+            base_set_hint(label, text, level=level)
         if hasattr(self, "kpoint_box") and not self.kpoint_box.isChecked():
             if ot:
                 set_hint(self.kpoint_hint,
@@ -3411,6 +3429,33 @@ class GenerateTab(QWidget):
             set_hint(self.kpoint_hint, prefix + text, level=warn)
             return
         set_hint(self.kpoint_hint, prefix + f"SCHEME {scheme or '自动'}。", level=warn)
+
+    def _wavefunction_note(self) -> str:
+        """One sentence: which ``WAVEFUNCTIONS`` value the input will carry.
+
+        Uses the writer's own decision (:func:`recipes.kpoint_wavefunction_choice`)
+        so the hint can never promise a value the file does not contain.
+        """
+        try:
+            spec = self.collect_spec()
+            structure = (prepare_structure(spec.structure.copy(), spec)
+                         if spec.structure is not None else None)
+        except Exception:       # noqa: BLE001 - half-typed values must not break the hint
+            return ""
+        chosen = (spec.kpoint_wavefunctions or "").strip().upper()
+        effective, provable = kpoint_wavefunction_choice(spec, structure)
+        if chosen == "REAL" and not provable:
+            return ("⚠ 波函数形式 **REAL** 是你选的，但这个 k 点集只有分量 0/0.5 "
+                    "的特殊点才能证明实波函数成立；CP2K 证明不了会打警告"
+                    "（`kpoint_initialize`），结果可能不对 —— 换回「自动」或选 "
+                    "COMPLEX 更稳。")
+        if chosen:
+            return f"波函数形式：{chosen}（你选的，写 `WAVEFUNCTIONS {chosen}`）。"
+        if effective == "REAL":
+            return ("波函数形式：自动 → 写 `WAVEFUNCTIONS REAL`"
+                    "（这个 k 点集是 Γ 点/特殊点，实波函数成立）。")
+        return ("波函数形式：自动 → 写 `WAVEFUNCTIONS COMPLEX`"
+                "（网格 k 点证明不了实波函数；COMPLEX 也是 CP2K 自己的默认）。")
 
     def _kpoint_points(self) -> list[tuple[float, float, float, float]]:
         out: list[tuple[float, float, float, float]] = []
@@ -5048,7 +5093,7 @@ class GenerateTab(QWidget):
         self.w_kpoint_full_grid.setChecked(False)
         self.w_kpoint_symmetry.setChecked(True)
         self.w_kpoint_verbose.setChecked(False)
-        self.w_kpoint_wavefunctions.setCurrentText("REAL")
+        self._set_widget_value(self.w_kpoint_wavefunctions, "")      # 自动
         # ---- cube files ----
         self.w_mo_cubes.setChecked(False)
         self.w_mo_cubes_nhomo.setValue(1)
@@ -5470,7 +5515,9 @@ class GenerateTab(QWidget):
             spec.kpoint_full_grid = self.w_kpoint_full_grid.isChecked()
             spec.kpoint_symmetry = self.w_kpoint_symmetry.isChecked()
             spec.kpoint_verbose = self.w_kpoint_verbose.isChecked()
-            spec.kpoint_wavefunctions = self.w_kpoint_wavefunctions.currentText()
+            # 「自动」 carries an empty data value: the writer then decides
+            spec.kpoint_wavefunctions = (
+                self.w_kpoint_wavefunctions.currentData() or "")
             if scheme == "custom":
                 spec.kpoint_scheme = (
                     self.w_kpoint_scheme_text.text().strip() or None)

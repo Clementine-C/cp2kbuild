@@ -834,9 +834,11 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-kpoint-symmetry", dest="kpoint_symmetry",
                         action="store_false", default=True,
                         help="&KPOINTS SYMMETRY F (the tool's default is T)")
-    parser.add_argument("--kpoint-wavefunctions", default="REAL",
-                        choices=["REAL", "COMPLEX"],
-                        help="&KPOINTS WAVEFUNCTIONS (CP2K's default is COMPLEX)")
+    parser.add_argument("--kpoint-wavefunctions", default="auto",
+                        choices=["auto", "REAL", "COMPLEX"],
+                        help="&KPOINTS WAVEFUNCTIONS: auto (REAL only when the "
+                             "k-point set is Γ/special points, COMPLEX otherwise - "
+                             "CP2K's own default), or force REAL/COMPLEX")
     parser.add_argument("--kpoint-verbose", action="store_true",
                         help="&KPOINTS VERBOSE T: list the k-points in the output")
     parser.add_argument("--mo-cubes", action="store_true",
@@ -1588,7 +1590,10 @@ def spec_from_args(args) -> Spec:
         kpoint_gamma_centered=args.kpoint_gamma_centered,
         kpoint_full_grid=args.kpoint_full_grid,
         kpoint_symmetry=args.kpoint_symmetry,
-        kpoint_wavefunctions=args.kpoint_wavefunctions,
+        # "auto" is the empty string: the writer picks REAL only when the k-point
+        # set proves it (see cp2kbuild/recipes.py::effective_wavefunctions)
+        kpoint_wavefunctions=("" if args.kpoint_wavefunctions == "auto"
+                              else args.kpoint_wavefunctions),
         kpoint_verbose=args.kpoint_verbose,
         print_mo_cubes=args.mo_cubes,
         mo_cubes_nhomo=args.mo_cubes_nhomo,

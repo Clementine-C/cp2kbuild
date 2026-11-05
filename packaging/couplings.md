@@ -2,7 +2,7 @@
 
 `cp2kbuild/couplings.py` 里的 `RULES` 是唯一来源：界面按它灰掉用不上的控件（原因写在该行的「?」上）、命令行按它对「给了却不会生效」的参数发警告、`tools/selftest.py` 逐条验证（每条都要能找到一个让它失效的输入、给出对应标志时会警告、默认值不误报）。
 
-共 163 条（其中 9 条是**界面/库独有**：命令行已冻结，没有对应开关，表里写「—」）。每一行都附了依据（手册页面或 CP2K 源码文件）。
+共 164 条（其中 9 条是**界面/库独有**：命令行已冻结，没有对应开关，表里写「—」）。每一行都附了依据（手册页面或 CP2K 源码文件）。
 
 | 参数（Spec 字段） | 命令行 | 只在……时生效 | 依据 |
 |---|---|---|---|
@@ -115,6 +115,7 @@
 | `kpoint_grid` | `--kpoint-grid` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/KPOINTS/SCHEME（+ FORCE_EVAL/DFT/SCF/&OT）` |
 | `kpoint_scheme` | `--kpoint-scheme` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/KPOINTS/SCHEME` |
 | `kpoint_points` | `--kpoint-point` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/KPOINTS/KPOINT` |
+| `kpoint_wavefunctions` | `--kpoint-wavefunctions` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/KPOINTS/WAVEFUNCTIONS` |
 | `metadyn` | `--metadyn` | 元动力学靠 MD 的步数积累偏置：`&MOTION/&FREE_ENERGY/&METADYN` 和 `&SUBSYS/&COLVAR` 只在 `RUN_TYPE MD` 下会被 CP2K 读。要先用 MD 采样，或者把任务改成 MD | `MOTION/FREE_ENERGY/METADYN ; FORCE_EVAL/SUBSYS/COLVAR` |
 | `fixed_atoms` | `--fixed-atoms` | 这个 RUN_TYPE 不会移动原子，固定原子没有任何作用（手写输入里出现 &CONSTRAINT 时校验器也会给 `constraint-ignored`） | `MOTION/CONSTRAINT/FIXED_ATOMS（只有 GEO_OPT/CELL_OPT/MD/BAND 有意义）` |
 | `vacuum` | `--vacuum` | 结构文件自带周期性晶胞时**完全忽略**真空层（晶体、以及 POSCAR/CIF 里已经带真空的表面板都属于这种）；要改那种体系的盒子请用「晶胞」 | `cp2kbuild/recipes.py:prepare_structure` |

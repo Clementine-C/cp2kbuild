@@ -1587,7 +1587,15 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
         ("k 网格（energy 任务也给）", dict(
             task="energy", structure=silicon, kpoint_grid=(4, 4, 4)),
          ["&KPOINTS", "SCHEME MONKHORST-PACK 4 4 4", "SYMMETRY T",
-          "WAVEFUNCTIONS REAL"]),
+          # 网格 k 点证明不了实波函数，自动选的就是 CP2K 自己的默认 COMPLEX
+          "WAVEFUNCTIONS COMPLEX"]),
+        ("k 点：Γ 点自动用 REAL", dict(
+            task="energy", structure=silicon, kpoint_grid=(1, 1, 1)),
+         ["SCHEME GAMMA", "WAVEFUNCTIONS REAL"]),
+        ("k 点：全 Γ/特殊点时自动用 REAL", dict(
+            task="energy", structure=silicon, kpoint_scheme="GENERAL",
+            kpoint_points=[(0.0, 0.0, 0.0, 1.0), (0.5, 0.5, 0.5, 2.0)]),
+         ["WAVEFUNCTIONS REAL"]),
         ("k 点：按间距自动（20 Å）", dict(
             task="energy", structure=silicon, kpoint_spacing=20.0),
          ["SCHEME MONKHORST-PACK 4 4 4"]),
@@ -1624,6 +1632,12 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
             task="energy", structure=silicon, kpoint_scheme="MONKHORST-PACK 6 6 6",
             kpoint_points=[(0.5, 0.5, 0.5, 1.0)]),
          ["SCHEME GENERAL", "KPOINT 0.5 0.5 0.5 1.0"]),
+        # 波函数形式只描述 &KPOINTS 怎么存，不能反过来把这一段"造"出来：
+        # 以前只要格子里是 COMPLEX，不勾 k 点也会写出整个 &KPOINTS（还带一个
+        # 默认 4×4×4 网格），并把 SCF 的 restart 文件变成 .kp
+        ("波函数形式 COMPLEX 但没开 k 点：不写 &KPOINTS", dict(
+            task="energy", structure=silicon, kpoint_wavefunctions="COMPLEX"),
+         ["PROJECT_NAME cp2k"]),
         ("立方体：轨道 + 密度", dict(
             task="energy", structure=silicon, print_mo_cubes=True,
             mo_cubes_nlumo=1, mo_cubes_stride="1 1 1",
@@ -1726,6 +1740,16 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
         diagnosis = validator.run(result.sections)
         errors = [d for d in diagnosis if d.level == "error"]
         missing = [needle for needle in wanted if needle not in text]
+        # 「&KPOINTS」 只能由 k 点设置本身产生，不能被波函数形式带出来
+        conjured = ("&KPOINTS" in text
+                    and not any(getattr(spec, name) for name in (
+                        "kpoint_grid", "kpoint_scheme", "kpoint_points",
+                        "kpoint_spacing", "kpoint_full_grid",
+                        "kpoint_gamma_centered", "kpoint_verbose"))
+                    and spec.task not in ("band", "pdos")
+                    and spec.kpoint_symmetry)
+        if conjured:
+            missing.append("（不该出现的 &KPOINTS）")
         if errors or missing:
             failures += 1
             print(f"  FAIL {label}: 缩 {missing}, error {len(errors)}")
