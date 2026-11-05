@@ -146,6 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="the CUTOFF held fixed in step 2 - the value step 1 "
                            "produced. Without it the second-step scripts refuse "
                            "to run until you fill it in.")
+    scan.add_argument("--keep-template", action="store_true",
+                      help="keep the input exactly as written: do not inject the "
+                           "tutorial's cheap SCF recipe (MAX_SCF 1 + "
+                           "IGNORE_CONVERGENCE_FAILURE + OUTER_SCF MAX_SCF 0 + "
+                           "SCF_GUESS ATOMIC). Without this the template runs one "
+                           "SCF step per parameter point, as cp2k.org's scripts do")
     # add_common's --cutoff means "&MGRID CUTOFF in the input", which here is the
     # number the placeholders replace - say so instead of letting it look useful.
     # The restart chain is dropped for the same reason: a grid scan may not read
@@ -2032,7 +2038,8 @@ def cmd_scan(args) -> int:
         plan = build_cutoff_study(
             source, args.outdir, cutoffs=args.cutoffs,
             rel_cutoffs=args.rel_cutoffs, fixed_rel_cutoff=args.rel_cutoff,
-            fixed_cutoff=args.fixed_cutoff)
+            fixed_cutoff=args.fixed_cutoff,
+            grid_protocol=not getattr(args, "keep_template", False))
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     if args.cutoff is not None:

@@ -4189,6 +4189,8 @@ def part3_cutoff_scripts(index=None) -> int:
            "占位符已经在输入里时，template.inp 与输入逐字节相名")
     report(not [note for note in plan.notes if "RUN_TYPE" in note],
            "输入本来就是 RUN_TYPE ENERGY 时不提ARUN_TYPE（提示只在真改了的时候出现）")
+    report("已经是网格扫描协议" in " ".join(plan.notes),
+           "模板本来就带 MAX_SCF 1 时，提示说「没改」而不是再叫你加一遍")
     report(sorted(plan.cutoffs) == sorted(cutoffkit.DEFAULT_CUTOFFS),
            f"第E1 步默认用官方脚本的范围：{plan.cutoffs}")
     report(sorted(plan.rel_cutoffs) == sorted(cutoffkit.DEFAULT_REL_CUTOFFS),
@@ -4200,8 +4202,9 @@ def part3_cutoff_scripts(index=None) -> int:
            f"从输入里读出了要复制的基给 赝势文件：{plan.basis_files} / "
            f"{plan.potential_files}")
     report(plan.side_files == ["force.inc"], f"@INCLUDE 的文件认出来了：{plan.side_files}")
-    report("MAX_SCF 1" not in " ".join(plan.notes),
-           "输入已经带官方协议时不再啰嗦（没有 MAX_SCF 的提醒）")
+    report("MAX_SCF 1" not in " ".join(
+               note for note in plan.notes if "请自己" in note),
+           "模板已经合规时不再提示「请自己加 MAX_SCF 1」")
 
     inputs = (out / "cutoff_inputs.sh").read_text(encoding="utf-8")
     report('cutoffs="50 100 150 200 250 300 350 400 450 500"' in inputs
@@ -4262,13 +4265,25 @@ def part3_cutoff_scripts(index=None) -> int:
     prepared = read_template_text(workdir / "literal_out" / "template.inp")
     report("CUTOFF LT_cutoff" in prepared and "REL_CUTOFF LT_rel_cutoff" in prepared,
            "字面写法的输入会被插入 LT_cutoff / LT_rel_cutoff 占位符")
+    report("MAX_SCF 1" in prepared and "IGNORE_CONVERGENCE_FAILURE TRUE" in prepared
+           and "&SCF" in prepared,
+           "字面写法没有 &SCF / MAX_SCF 时，模板里补上官方扫描协议"
+           "（MAX_SCF 1 + IGNORE_CONVERGENCE_FAILURE，每个点只跑 1 步）")
+    report("已按 CP2K 官方教程" in " ".join(plan2.notes)
+           and "MAX_SCF" in " ".join(plan2.notes),
+           "改了就在提示里说清改了哪几项（不再让用户自己去加）")
+    # --keep-template（grid_protocol=False）才是「逐字节不动」的那个承诺
+    plan2b = cutoffkit.build_cutoff_study(
+        literal, workdir / "literal_keep", cutoffs="100,200",
+        rel_cutoffs="20,40", fixed_cutoff=200, grid_protocol=False)
+    kept = read_template_text(workdir / "literal_keep" / "template.inp")
     changed = [before for before, after in
-               zip(literal_text.splitlines(), prepared.splitlines())
+               zip(literal_text.splitlines(), kept.splitlines())
                if before != after]
     report(changed == ["         CUTOFF 400", "         REL_CUTOFF 60"],
-           f"除那两行以外一个字节没动：{changed}")
-    report("MAX_SCF 1" in " ".join(plan2.notes),
-           "输入不是官方协议时提醒一次（并给出要加的三行）")
+           f"grid_protocol=False 时除那两行以外一个字节没动：{changed}")
+    report("请自己" in " ".join(plan2b.notes) and "MAX_SCF 1" in " ".join(plan2b.notes),
+           "原样保留模板时仍然提醒一次要自己加 MAX_SCF 1")
     step2b = (workdir / "literal_out" / "rel_cutoff_inputs.sh").read_text(encoding="utf-8")
     report("cutoff=200" in step2b and cutoffkit.CHANGE_ME not in step2b,
            "给了 --cutoff 以后第_2 步的脚本直接可跑（没有 CHANGE_ME） ")
@@ -4285,6 +4300,38 @@ def part3_cutoff_scripts(index=None) -> int:
     notes = " ".join(plan3.notes)
     report("找不到 CUTOFF" in notes and "找不到 REL_CUTOFF" in notes,
            "输入里没有这两个关键字时明确报出来（否则 sed 会静默替换不到）")
+
+    # ---- 3a. the user's report: 自己的输入里 MAX_SCF 50，template 里没改成 1 --- #
+    # 一份完全正常的输入（CP2K 默认 MAX_SCF 50 + 外层 20 + SCF_GUESS RESTART）
+    # 拿来做模板时，工具必须把 SCF 收紧成"每个点 1 步"，否则每一档都要跑满 50 步。
+    normal = src_dir / "normal.inp"
+    normal.write_text(
+        "&GLOBAL\n   RUN_TYPE ENERGY\n&END GLOBAL\n&FORCE_EVAL\n"
+        "   METHOD Quickstep\n   &DFT\n"
+        "      BASIS_SET_FILE_NAME BASIS_MOLOPT\n"
+        "      POTENTIAL_FILE_NAME GTH_POTENTIALS\n"
+        "      &MGRID\n         CUTOFF 400\n         REL_CUTOFF 60\n"
+        "      &END MGRID\n"
+        "      &SCF\n         SCF_GUESS RESTART\n         EPS_SCF 1.0E-6\n"
+        "         MAX_SCF 50\n"
+        "         &OUTER_SCF\n            EPS_SCF 1.0E-6\n"
+        "            MAX_SCF 20\n         &END OUTER_SCF\n"
+        "         &MIXING\n            ALPHA 0.4\n            MAX_SCF 7\n"
+        "         &END MIXING\n"
+        "      &END SCF\n   &END DFT\n&END FORCE_EVAL\n", encoding="utf-8")
+    cutoffkit.build_cutoff_study(normal, workdir / "normal_out",
+                                 cutoffs="100,200", rel_cutoffs="20,40")
+    tpl_normal = read_template_text(workdir / "normal_out" / "template.inp")
+    report("MAX_SCF 1" in tpl_normal and "MAX_SCF 50" not in tpl_normal,
+           "自己的输入（MAX_SCF 50）拿来当模板时，template.inp 里改成 MAX_SCF 1")
+    report("IGNORE_CONVERGENCE_FAILURE TRUE" in tpl_normal,
+           "同时补上 IGNORE_CONVERGENCE_FAILURE TRUE（否则 1 步没收敛就中止）")
+    report("SCF_GUESS ATOMIC" in tpl_normal and "SCF_GUESS RESTART" not in tpl_normal,
+           "SCF_GUESS RESTART 改成 ATOMIC（扫描不带 .wfn 文件）")
+    report(tpl_normal.count("MAX_SCF 0") == 1,
+           "&OUTER_SCF MAX_SCF 20 归零（否则「1 步」会被外层乘成 20 步）")
+    report("MAX_SCF 7" in tpl_normal,
+           "&MIXING 里的 MAX_SCF 7 不是 SCF 的关键字，不能被误改")
 
     # ---- 3b. the tool's own inputs carry a [unit] annotation ---------------- #
     # ``CUTOFF [Ry] 400.0`` is how cp2kbuild writes it (and CP2K accepts the

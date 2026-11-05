@@ -64,8 +64,7 @@ RE_MAX_SCF_ONE = re.compile(r"^\s*MAX_SCF\s+1\s*$", re.M | re.I)
 RE_IGNORE_FAILURE = re.compile(r"IGNORE_CONVERGENCE_FAILURE\s+[Tt]", re.M | re.I)
 
 #: ``RUN_TYPE`` as a literal line (the value is replaced, the layout is kept).
-RE_RUN_TYPE = re.compile(r"^([ \t]*RUN_TYPE[ \t]+)(\S+)(.*)$", re.M | re.I)
-#: ``@SET RTYPE <token>`` - the tutorial's own template style, where ``RUN_TYPE``
+RE_RUN_TYPE = re.compile(r"^([ \t]*RUN_TYPE[ \t]+)(\S+)(.*)$", re.M | re.I)#: ``@SET RTYPE <token>`` - the tutorial's own template style, where ``RUN_TYPE``
 #: itself is written as ``RUN_TYPE ${RTYPE}``.
 RE_SET_RTYPE = re.compile(r"^([ \t]*@SET[ \t]+RTYPE[ \t]+)(\S+)(.*)$", re.M | re.I)
 
@@ -413,6 +412,183 @@ def align_run_type(text: str) -> tuple[str, list[str]]:
     return text, notes
 
 
+#: ``&SCF`` / any section opener, and ``&END ...`` - enough to walk the block.
+RE_SECTION_LINE = re.compile(r"^[ \t]*&([A-Za-z0-9_.\-]+)\b(.*)$", re.I)
+RE_MAX_SCF_LINE = re.compile(r"^([ \t]*)MAX_SCF[ \t]+(\S+)(.*)$", re.I)
+RE_IGNORE_LINE = re.compile(r"^([ \t]*)IGNORE_CONVERGENCE_FAILURE[ \t]+(\S+)(.*)$",
+                            re.I)
+RE_GUESS_LINE = re.compile(r"^([ \t]*)SCF_GUESS[ \t]+(\S+)(.*)$", re.I)
+
+
+def _section_span(lines: list[str], name: str) -> tuple[int, int] | None:
+    """Line span of the first ``&<name>`` block: ``(start, end)``, end exclusive."""
+    wanted = name.upper()
+    for start, line in enumerate(lines):
+        match = RE_SECTION_LINE.match(line.rstrip("\r\n"))
+        if not match or match.group(1).upper() != wanted:
+            continue
+        depth = 0
+        for index in range(start, len(lines)):
+            opener = RE_SECTION_LINE.match(lines[index].rstrip("\r\n"))
+            if not opener:
+                continue
+            token = opener.group(1).upper()
+            if token == "END" or token.startswith("END "):
+                depth -= 1
+                if depth == 0:
+                    return start, index + 1
+            else:
+                depth += 1
+        return start, len(lines)
+    return None
+
+
+def inject_grid_protocol(text: str, already_ok: bool = False
+                         ) -> tuple[str, list[str]]:
+    """Pin the SCF to the tutorial's *one step per parameter point*.
+
+    A CUTOFF/REL_CUTOFF study compares total energies at fixed atomic positions,
+    so the official scripts run every point with ``MAX_SCF 1`` +
+    ``IGNORE_CONVERGENCE_FAILURE TRUE`` (+ ``SCF_GUESS ATOMIC``): one SCF step per
+    point, roughly an order of magnitude cheaper than a converged SCF.  An input
+    taken from the user keeps its ``MAX_SCF 50`` (CP2K's default), which would run
+    a full SCF for every value - the warning the tool used to print told the user
+    to fix that by hand, which is exactly the kind of thing this tool should do.
+
+    ``already_ok`` is set by the caller when the *expanded* input (``@INCLUDE``
+    files included) already carries the recipe: then nothing is touched.
+    Only the *first* ``&SCF`` block is edited; the rest of the file stays as it
+    was written (comments, ``@SET``, includes, line endings).
+    """
+    notes: list[str] = []
+    if already_ok:
+        notes.append("模板（含 @INCLUDE 进来的文件）已经是网格扫描协议"
+                     "（MAX_SCF 1 + IGNORE_CONVERGENCE_FAILURE），没改。")
+        return text, notes
+    lines = text.splitlines(keepends=True)
+    span = _section_span(lines, "SCF")
+    if span is None:
+        # no &SCF at all: CP2K would use MAX_SCF 50 - insert a minimal block right
+        # after &DFT, which is where it belongs
+        dft_span = _section_span(lines, "DFT")
+        if dft_span is None:
+            notes.append(
+                "⚠ 这份输入里既没有 &SCF 也没有 &DFT：没法注入网格扫描协议"
+                "（MAX_SCF 1），每个参数点都会跑完整 SCF。"
+                "如果 &SCF 在 @INCLUDE 进来的文件里，工具不改你的 include 文件，"
+                "请自己把那一块改成 MAX_SCF 1 + IGNORE_CONVERGENCE_FAILURE TRUE。")
+            return text, notes
+        insert_at = dft_span[0] + 1
+        indent = "  "
+        block = [f"{indent}&SCF\n", f"{indent}  SCF_GUESS ATOMIC\n",
+                 f"{indent}  MAX_SCF 1\n",
+                 f"{indent}  IGNORE_CONVERGENCE_FAILURE TRUE\n",
+                 f"{indent}&END SCF\n"]
+        lines[insert_at:insert_at] = block
+        notes.append("已按 CP2K 官方教程往 &DFT 里插入 &SCF（SCF_GUESS ATOMIC / "
+                     "MAX_SCF 1 / IGNORE_CONVERGENCE_FAILURE TRUE）："
+                     "每个参数点只跑 1 步 SCF。")
+        return "".join(lines), notes
+
+    start, end = span
+    indent = "  "
+    for line in lines[start + 1:end - 1]:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            indent = line[:len(line) - len(line.lstrip())]
+            break
+
+    changed: list[str] = []
+    seen_max = seen_ignore = False
+    new_body: list[str] = []
+    # the ``&SCF`` line itself is not part of the slice below
+    stack: list[str] = ["SCF"]
+    for index in range(start + 1, end - 1):
+        raw = lines[index]
+        stripped = raw.rstrip("\r\n")
+        opener = RE_SECTION_LINE.match(stripped)
+        if opener:
+            token = opener.group(1).upper()
+            if token == "END" or token.startswith("END "):
+                if stack:
+                    stack.pop()
+            else:
+                stack.append(token)
+            new_body.append(raw)
+            continue
+        current = stack[-1] if stack else ""
+        if current == "SCF":
+            match = RE_MAX_SCF_LINE.match(stripped)
+            if match:
+                seen_max = True
+                if match.group(2).strip() != "1":
+                    changed.append(f"MAX_SCF {match.group(2)} → 1")
+                    raw = f"{match.group(1)}MAX_SCF 1{match.group(3)}"
+                    if lines[index].endswith("\r\n"):
+                        raw += "\r\n"
+                    elif lines[index].endswith("\n"):
+                        raw += "\n"
+                new_body.append(raw)
+                continue
+            match = RE_IGNORE_LINE.match(stripped)
+            if match:
+                seen_ignore = True
+                if not match.group(2).upper().startswith("T"):
+                    changed.append(
+                        f"IGNORE_CONVERGENCE_FAILURE {match.group(2)} → TRUE")
+                    raw = (f"{match.group(1)}IGNORE_CONVERGENCE_FAILURE TRUE"
+                           f"{match.group(3)}")
+                    if lines[index].endswith("\r\n"):
+                        raw += "\r\n"
+                    elif lines[index].endswith("\n"):
+                        raw += "\n"
+                new_body.append(raw)
+                continue
+            match = RE_GUESS_LINE.match(stripped)
+            if match and match.group(2).upper() in ("RESTART", "HISTORY_RESTART"):
+                # no wave-function file travels with the scan: each point must
+                # start from the atomic guess instead of a missing .wfn
+                changed.append(f"SCF_GUESS {match.group(2)} → ATOMIC")
+                raw = f"{match.group(1)}SCF_GUESS ATOMIC{match.group(3)}"
+                if lines[index].endswith("\r\n"):
+                    raw += "\r\n"
+                elif lines[index].endswith("\n"):
+                    raw += "\n"
+                new_body.append(raw)
+                continue
+        elif current == "OUTER_SCF":
+            match = RE_MAX_SCF_LINE.match(stripped)
+            if match:
+                if match.group(2).strip() != "0":
+                    changed.append(f"&OUTER_SCF MAX_SCF {match.group(2)} → 0")
+                    raw = f"{match.group(1)}MAX_SCF 0{match.group(3)}"
+                    if lines[index].endswith("\r\n"):
+                        raw += "\r\n"
+                    elif lines[index].endswith("\n"):
+                        raw += "\n"
+                new_body.append(raw)
+                continue
+        new_body.append(raw)
+
+    prefix: list[str] = []
+    if not seen_max:
+        prefix.append(f"{indent}MAX_SCF 1\n")
+        changed.append("补上 MAX_SCF 1")
+    if not seen_ignore:
+        prefix.append(f"{indent}IGNORE_CONVERGENCE_FAILURE TRUE\n")
+        changed.append("补上 IGNORE_CONVERGENCE_FAILURE TRUE")
+
+    lines[start + 1:end - 1] = prefix + new_body
+    if not changed:
+        notes.append("模板已经是网格扫描协议（MAX_SCF 1 + IGNORE_CONVERGENCE_FAILURE），"
+                     "没改。")
+    else:
+        notes.append("已按 CP2K 官方教程把模板改成「网格扫描协议」（每个参数点只跑 "
+                     "1 步 SCF）：" + "；".join(changed)
+                     + "。不想要就加 --keep-template（界面：「原样保留模板」）。")
+    return "".join(lines), notes
+
+
 # --------------------------------------------------------------------------- #
 # the shell scripts (the tutorial's, with the values filled in)
 # --------------------------------------------------------------------------- #
@@ -621,11 +797,18 @@ def analyse_script(*, keyword: str, values, input_name: str, output_name: str,
 def build_cutoff_study(source, outdir: str | Path, *,
                        cutoffs=None, rel_cutoffs=None,
                        fixed_rel_cutoff: float = DEFAULT_FIXED_REL_CUTOFF,
-                       fixed_cutoff: float | None = None) -> CutoffPlan:
+                       fixed_cutoff: float | None = None,
+                       grid_protocol: bool = True) -> CutoffPlan:
     """Write ``template.inp`` + the six scripts into ``outdir``.
 
     ``source`` is a :class:`StudySource` (see :func:`source_from_input` and
     :func:`source_from_spec`) or, for convenience, the path of an existing input.
+
+    ``grid_protocol`` (default on) applies the tutorial's cheap SCF recipe to the
+    template: ``MAX_SCF 1`` + ``IGNORE_CONVERGENCE_FAILURE TRUE`` +
+    ``&OUTER_SCF MAX_SCF 0`` + ``SCF_GUESS ATOMIC``, so every parameter point
+    costs one SCF step instead of a converged SCF.  ``False`` keeps the input
+    exactly as it was written (``--keep-template``).
     """
     if not isinstance(source, StudySource):
         source = source_from_input(source)
@@ -642,11 +825,19 @@ def build_cutoff_study(source, outdir: str | Path, *,
     text, run_type_notes = align_run_type(source.text)
     # ... and it must not chain to a previous run's restart file
     text, restart_notes = neutralize_ext_restart(text)
-    prepared, substitutions, notes = prepare_template(text)
-    notes = list(source.notes) + run_type_notes + restart_notes + notes
     included = "".join(
         read_template_text(path) for path in source.side_files
         if path.suffix.lower() in (".inc", ".inp"))
+    # ... and it should take one SCF step per point, not a converged SCF.  The
+    # recipe may already sit in an @INCLUDE'd file, which is not ours to edit.
+    protocol_notes: list[str] = []
+    if grid_protocol:
+        already = bool(RE_MAX_SCF_ONE.search(text + included)
+                       and RE_IGNORE_FAILURE.search(text + included))
+        text, protocol_notes = inject_grid_protocol(text, already_ok=already)
+    prepared, substitutions, notes = prepare_template(text)
+    notes = (list(source.notes) + run_type_notes + restart_notes
+             + protocol_notes + notes)
     expanded = text + "\n" + included
     # an @INCLUDE is copied verbatim, so an &EXT_RESTART inside one cannot be
     # commented out here - it has to be pointed out instead

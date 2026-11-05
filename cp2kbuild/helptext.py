@@ -2487,6 +2487,18 @@ HELP: dict[str, Help] = {
         "**没改成真实值之前脚本会直接拒绝运行**（而不是安静地跑一堆目录名不对的算例）。\n"
         "为什么必须换 CUTOFF 重扫：多级网格的每一档跟着 CUTOFF 缩放，"
         "REL_CUTOFF 却是绝对值，在别的 CUTOFF 上测出来的值不能直接搬过来。"),
+    "scan_keep_template": Help(
+        "**默认不勾**：工具会按 CP2K 官方教程把 `template.inp` 改成"
+        "「每个参数点只跑 1 步 SCF」——\n"
+        "• `&SCF/MAX_SCF 1`（你的输入多半是 CP2K 默认的 50）；\n"
+        "• 补上 `IGNORE_CONVERGENCE_FAILURE TRUE`（否则 1 步没收敛 CP2K 就中止）；\n"
+        "• `&SCF/&OUTER_SCF/MAX_SCF 0`（不然「1 步」会被外层乘成 20 步）；\n"
+        "• `SCF_GUESS RESTART` → `ATOMIC`（扫描目录里没有 `.wfn` 文件）。\n"
+        "为什么：截断能/REL_CUTOFF 扫描比的是**同一个几何下的总能**，"
+        "每个点只要 1 步 SCF 就够了，收敛一整套 SCF 会慢一个量级。\n"
+        "勾上它就**原样保留**你的文件（只改 RUN_TYPE 和两个占位符）——"
+        "适合你想保留自己的 SCF 设置、或者想连 SCF 一起测的情况。"
+        "命令行对应 `--keep-template`。"),
     "scan_outdir": Help(
         "七个文件写到哪里（目录不存在会自动建）：\n"
         "`template.inp`、`cutoff_inputs.sh`、`cutoff_run.sh`、`cutoff_analyse.sh`、"

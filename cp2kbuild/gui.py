@@ -8851,6 +8851,11 @@ class ScanTab(QWidget):
         form_row(form, "scan_fixed_cutoff", "固定的 CUTOFF (Ry)",
                  self.w_fixed_cutoff)
 
+        # the tutorial's cheap protocol is injected into template.inp by default;
+        # this box is the way back to "my file, exactly as written"
+        self.w_keep_template = QCheckBox("原样保留模板（不注入 MAX_SCF 1 扫描协议）")
+        form_row(form, "scan_keep_template", "模板处理", self.w_keep_template)
+
         layout.addLayout(form)
         hint = hint_label()
         set_hint(hint, "两步是耦合的：第 1 步固定 REL_CUTOFF 扫 CUTOFF，"
@@ -8974,7 +8979,8 @@ class ScanTab(QWidget):
                 study_source, outdir, cutoffs=self.w_cutoffs.text(),
                 rel_cutoffs=self.w_rel_cutoffs.text(),
                 fixed_rel_cutoff=self.w_rel_cutoff.value(),
-                fixed_cutoff=float(fixed) if fixed else None)
+                fixed_cutoff=float(fixed) if fixed else None,
+                grid_protocol=not self.w_keep_template.isChecked())
         except (ValueError, OSError) as exc:
             self._notify("error", "生成失败", str(exc))
             self.scan_log.setPlainText(str(exc))

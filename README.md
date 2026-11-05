@@ -1557,9 +1557,18 @@ python -m cp2kbuild scan --input system.inp --outdir cutoff_test ^
   加上 `@INCLUDE` 链上的文件，一起复制进目录并填进脚本的变量；本地找不到的会点名。
 - **按官方教程写省机时协议**（`RUN_TYPE ENERGY` + `SCF_GUESS ATOMIC` + `MAX_SCF 1` +
   `&OUTER_SCF MAX_SCF 0` + `IGNORE_CONVERGENCE_FAILURE` + `PRINT_LEVEL MEDIUM`，每个点只跑 1 步
-  SCF）：走「生成输入页参数」通道时工具是写输入的那一方，就直接写进去；走「已有输入」通道时
-  工具只说一句并给出要加的内容，**不会**擅自改你的文件。（`PRINT_LEVEL MEDIUM` 不能少——
-  没有它 CP2K 不打印 `MULTIGRID INFO`，分析脚本就数不出每个网格层落了几个高斯。）
+  SCF）：走「生成输入页参数」通道时工具是写输入的那一方，就直接写进去。
+  （`PRINT_LEVEL MEDIUM` 不能少——没有它 CP2K 不打印 `MULTIGRID INFO`，分析脚本就数不出
+  每个网格层落了几个高斯。）
+- **走「已有输入」通道也会把这几项改成 1**（这是用户报过的一个真问题：自己那份输入里
+  `MAX_SCF 50`，生成的 `template.inp` 却原样留着 50，于是每一档都要跑满整套 SCF，
+  比官方脚本慢一个量级）。注入是**外科手术式的**：只动 `&SCF` 的第一个块，把
+  `MAX_SCF` 改成 1、补 `IGNORE_CONVERGENCE_FAILURE TRUE`、把 `&OUTER_SCF` 的 `MAX_SCF` 归零、
+  `SCF_GUESS RESTART` 改成 `ATOMIC`（扫描目录里没有 `.wfn`）；`&MIXING` 里的 `MAX_SCF`
+  之类同名但不同段的关键字**不会**被误改，其余字节（注释、`@SET`、`@INCLUDE`、行尾）原样保留。
+  改了什么会逐项列在生成结果里。不想被改就勾「原样保留模板」（`scan --keep-template`）——
+  那时连 `MAX_SCF` 都不碰，只改 `RUN_TYPE` 和两个占位符，并照旧提醒你自己加上那三行。
+  如果 `&SCF` 在 `@INCLUDE` 进来的文件里，工具不会去改你的 include 文件（会在结果里点名）。
 
 ### AIMD 升温 / 降温
 

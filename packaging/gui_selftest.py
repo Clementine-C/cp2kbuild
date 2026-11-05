@@ -3523,13 +3523,33 @@ def main() -> int:
     step2 = (work / "gui_b" / "rel_cutoff_inputs.sh").read_text(encoding="utf-8")
     check("CHANGE_ME" in step2 and "exit 1" in step2,
           "没填第 2 步的 CUTOFF 时脚本里是 CHANGE_ME 且会拒绝运行")
-    check("MAX_SCF 1" in scan.scan_log.toPlainText(),
-          "输入不是官方那种省机时写法时，结果里提醒一次")
+    # 默认注入官方"每个点 1 步 SCF"的协议（用户报过：自己的输入 MAX_SCF 50 时
+    # template.inp 里没有改成 1）
+    check("&SCF" in prepared and "MAX_SCF 1" in prepared
+          and "IGNORE_CONVERGENCE_FAILURE TRUE" in prepared,
+          "template.inp 里补上了 MAX_SCF 1 + IGNORE_CONVERGENCE_FAILURE")
+    check("已按 CP2K 官方教程" in scan.scan_log.toPlainText()
+          and "MAX_SCF 1" in scan.scan_log.toPlainText(),
+          "结果里说明注入了什么（而不是让用户自己去加）")
     check("第 2 步的 CUTOFF 还没定" in scan.scan_log.toPlainText(),
           "结果里也说明了第 2 步还缺什么")
     run_cli(["scan", "--input", str(literal), "--outdir", str(work / "cli_b"),
              "--cutoffs", "100", "--rel-cutoffs", "20"])
     compare_tree("字面写法的输入", work / "gui_b", work / "cli_b")
+
+    # ---- B2. 「原样保留模板」：文件和输入逐字节一致 ------------------------- #
+    scan.w_keep_template.setChecked(True)
+    scan.w_scan_outdir.setText(str(work / "gui_b2"))
+    check(scan.run_scan() == 0, "勾上「原样保留模板」也能生成")
+    kept = (work / "gui_b2" / "template.inp").read_text(encoding="utf-8")
+    check("MAX_SCF 1" not in kept and "&SCF" not in kept,
+          "原样保留时不注入 MAX_SCF 1（除 RUN_TYPE 与两个占位符外不动文件）")
+    check("请自己" in scan.scan_log.toPlainText(),
+          "原样保留时仍然提醒一次要自己加 MAX_SCF 1")
+    run_cli(["scan", "--input", str(literal), "--outdir", str(work / "cli_b2"),
+             "--cutoffs", "100", "--rel-cutoffs", "20", "--keep-template"])
+    compare_tree("原样保留模板", work / "gui_b2", work / "cli_b2")
+    scan.w_keep_template.setChecked(False)
 
     # ---- C. the guards must reach the user instead of crashing ------------- #
     scan.w_source_file.clear()

@@ -2,7 +2,7 @@
 
 鼠标悬浮在界面上任意「?」上就会显示下面这些内容；带手册链接的「?」还可以点击直接打开对应的手册页。
 
-共 211 条。
+共 212 条。
 
 ## 结构
 
@@ -2475,6 +2475,18 @@ REL_CUTOFF 决定每个高斯函数被放到哪一档网格上：太小，函数
 **第 2 步固定住的 CUTOFF**：第 1 步从 `cutoff_data.ssv` 里定下来的那个值。
 留空也可以——生成的三个 `rel_cutoff_*.sh` 里会先写 `CHANGE_ME`，**没改成真实值之前脚本会直接拒绝运行**（而不是安静地跑一堆目录名不对的算例）。
 为什么必须换 CUTOFF 重扫：多级网格的每一档跟着 CUTOFF 缩放，REL_CUTOFF 却是绝对值，在别的 CUTOFF 上测出来的值不能直接搬过来。
+
+## scan_keep_template
+
+*标识*：`scan_keep_template`
+
+**默认不勾**：工具会按 CP2K 官方教程把 `template.inp` 改成「每个参数点只跑 1 步 SCF」——
+• `&SCF/MAX_SCF 1`（你的输入多半是 CP2K 默认的 50）；
+• 补上 `IGNORE_CONVERGENCE_FAILURE TRUE`（否则 1 步没收敛 CP2K 就中止）；
+• `&SCF/&OUTER_SCF/MAX_SCF 0`（不然「1 步」会被外层乘成 20 步）；
+• `SCF_GUESS RESTART` → `ATOMIC`（扫描目录里没有 `.wfn` 文件）。
+为什么：截断能/REL_CUTOFF 扫描比的是**同一个几何下的总能**，每个点只要 1 步 SCF 就够了，收敛一整套 SCF 会慢一个量级。
+勾上它就**原样保留**你的文件（只改 RUN_TYPE 和两个占位符）——适合你想保留自己的 SCF 设置、或者想连 SCF 一起测的情况。命令行对应 `--keep-template`。
 
 ## scan_outdir
 
