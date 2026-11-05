@@ -2,7 +2,7 @@
 
 `cp2kbuild/couplings.py` 里的 `RULES` 是唯一来源：界面按它灰掉用不上的控件（原因写在该行的「?」上）、命令行按它对「给了却不会生效」的参数发警告、`tools/selftest.py` 逐条验证（每条都要能找到一个让它失效的输入、给出对应标志时会警告、默认值不误报）。
 
-共 166 条（其中 9 条是**界面/库独有**：命令行已冻结，没有对应开关，表里写「—」）。每一行都附了依据（手册页面或 CP2K 源码文件）。
+共 168 条（其中 9 条是**界面/库独有**：命令行已冻结，没有对应开关，表里写「—」）。每一行都附了依据（手册页面或 CP2K 源码文件）。
 
 | 参数（Spec 字段） | 命令行 | 只在……时生效 | 依据 |
 |---|---|---|---|
@@ -102,6 +102,8 @@
 | `mixing_alpha` | `--mixing-alpha` | `&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，smearing 路线留给 CP2K 自己的默认混合 | `cp2kbuild/recipes.py:scf_section` |
 | `mixing_nbuffer` | `--mixing-nbuffer` | `&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，smearing 路线留给 CP2K 自己的默认混合 | `cp2kbuild/recipes.py:scf_section` |
 | `mixing_beta` | `--mixing-beta` | `&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，smearing 路线留给 CP2K 自己的默认混合 | `cp2kbuild/recipes.py:scf_section` |
+| `mixing_alpha_mag` | `--mixing-alpha-mag` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/SCF/MIXING（+ FORCE_EVAL/DFT/UKS）` |
+| `mixing_beta_mag` | `--mixing-beta-mag` | （随任务/取值变化，见实现） | `FORCE_EVAL/DFT/SCF/MIXING（+ FORCE_EVAL/DFT/UKS）` |
 | `wfn_restart_file` | `--wfn-restart-file` | SCF_GUESS 不是 RESTART/HISTORY_RESTART：不需要指定波函数文件 | `FORCE_EVAL/DFT/WFN_RESTART_FILE_NAME` |
 | `wfn_restart_every` | `--wfn-restart-every` | 关掉了「波函数文件」：`&SCF/&PRINT/&RESTART` 整段不会出现 | `FORCE_EVAL/DFT/SCF/PRINT/RESTART/EACH` |
 | `wfn_restart_level` | `--wfn-restart-level` | 关掉了「波函数文件」：没有间隔要计数 | `FORCE_EVAL/DFT/SCF/PRINT/RESTART/EACH` |

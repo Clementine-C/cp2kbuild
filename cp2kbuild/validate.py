@@ -1608,6 +1608,32 @@ class Validator:
             total += valence
         return total or None
 
+    def _check_mixing_mag(self, dft: Section, spin_polarised: bool) -> None:
+        """``&MIXING ALPHA_MAG``/``BETA_MAG`` mix the *magnetization* density.
+
+        The manual: "Fraction of new magnetization density to be included (for
+        spin-polarized calculations, ispin=2 channel after rho_total/m
+        transform)" / "Kerker damping parameter for the magnetization channel
+        (for spin-polarized calculations)".  A closed-shell run has no
+        magnetization channel, so the values cannot act.
+        """
+        scf = dft.subsection("SCF")
+        mixing = scf.subsection("MIXING") if scf is not None else None
+        if mixing is None or not section_enabled(mixing):
+            return
+        for keyword in ("ALPHA_MAG", "BETA_MAG"):
+            value = _as_float(mixing.get(keyword), None)
+            # CP2K's own default is -1 = "use the same value as ALPHA/BETA"
+            if value is None or value < 0:
+                continue
+            if not spin_polarised:
+                self._add(
+                    "info", "mixing-mag-without-uks",
+                    f"&MIXING {keyword} {value:g}，但没有 UKS T（闭壳层）",
+                    path="CP2K_INPUT/FORCE_EVAL/DFT/SCF/MIXING",
+                    hint="ALPHA_MAG/BETA_MAG 混的是磁化密度（ρ↑−ρ↓），"
+                         "闭壳层没有这一支、CP2K 不会读；要算磁性体系就加 UKS T")
+
     def _check_magnetizations(self, dft: Section, subsys: Section | None,
                               spin_polarised: bool) -> None:
         """``&KIND MAGNETIZATION`` is an *initial guess* for a spin-polarised run.
@@ -1688,6 +1714,8 @@ class Validator:
                       path="CP2K_INPUT/FORCE_EVAL/DFT")
         self._check_magnetizations(dft, subsys, spin_polarised=bool(uks_flag)
                                    or multiplicity > 1)
+        self._check_mixing_mag(dft, spin_polarised=bool(uks_flag)
+                               or multiplicity > 1)
         if multiplicity_value is not None and elements and subsys is not None:
             if not has_preprocessor(multiplicity_value) and not has_preprocessor(charge):
                 electrons = self._count_electrons(subsys)

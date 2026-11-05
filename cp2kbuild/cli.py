@@ -487,6 +487,13 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                         help="SCF &MIXING NBUFFER (default: 8)")
     parser.add_argument("--mixing-beta", type=float, default=None,
                         help="SCF &MIXING BETA (default: not written)")
+    parser.add_argument("--mixing-alpha-mag", type=float, default=None,
+                        help="&MIXING ALPHA_MAG: mixing fraction for the "
+                             "magnetization density (spin-polarised runs only; "
+                             "magnetic transition metals often want 0.8-1.6)")
+    parser.add_argument("--mixing-beta-mag", type=float, default=None,
+                        help="&MIXING BETA_MAG: Kerker damping for the magnetization "
+                             "channel (spin-polarised runs only; 0 disables it)")
     parser.add_argument("--scaled-coords", action="store_true",
                         help="write &COORD SCALED (fractional coordinates; "
                              "needs a cell)")
@@ -1569,6 +1576,8 @@ def spec_from_args(args) -> Spec:
         mixing_alpha=args.mixing_alpha,
         mixing_nbuffer=args.mixing_nbuffer,
         mixing_beta=args.mixing_beta,
+        mixing_alpha_mag=args.mixing_alpha_mag,
+        mixing_beta_mag=args.mixing_beta_mag,
         scaled_coords=args.scaled_coords,
         thermostat_timecon=args.thermostat_timecon,
         barostat_timecon=args.barostat_timecon,

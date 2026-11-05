@@ -626,6 +626,13 @@ class Spec:
     mixing_alpha: float = 0.4
     mixing_nbuffer: int = 8
     mixing_beta: float | None = None
+    #: ``&MIXING ALPHA_MAG`` / ``BETA_MAG``: the mixing fraction/damping for the
+    #: **magnetization** channel.  The manual: "Fraction of new magnetization
+    #: density to be included (for spin-polarized calculations, ispin=2 channel
+    #: after rho_total/m transform)"; negative (CP2K's default) means "same as
+    #: ALPHA/BETA".  Only a spin-polarised run has a magnetization to mix.
+    mixing_alpha_mag: float | None = None
+    mixing_beta_mag: float | None = None
 
     # coordinate representation
     scaled_coords: bool = False
@@ -1424,6 +1431,17 @@ def scf_section(spec: Spec, structure: Structure | None, setup: Setup,
             mixing.set("NBUFFER", int(spec.mixing_nbuffer))
             if spec.mixing_beta is not None:
                 mixing.set("BETA", float(spec.mixing_beta))
+            # the magnetization channel only exists in a spin-polarised run
+            # (manual: "for spin-polarized calculations, ispin=2 channel")
+            if effective_uks(spec):
+                if spec.mixing_alpha_mag is not None:
+                    mixing.set("ALPHA_MAG", float(spec.mixing_alpha_mag), comment=(
+                        "mixing fraction for the magnetization density (magnetic "
+                        "transition metals often converge better with 0.8-1.6)"))
+                if spec.mixing_beta_mag is not None:
+                    mixing.set("BETA_MAG", float(spec.mixing_beta_mag), comment=(
+                        "Kerker damping for the magnetization channel; 0 disables "
+                        "it, which avoids suppressing long-range magnetic order"))
             scf.add(mixing)
         # the outer loop is CP2K's own (default MAX_SCF 50); write it only when
         # the user asks for something specific, so default output is untouched

@@ -769,6 +769,29 @@ HELP: dict[str, Help] = {
         "注意：只有纯对角化路线会写 &MIXING。OT 不用它；"
         "开了 SMEAR 时工具也不写（CP2K 自己的默认对金属更合适）——"
         "这时候这两个框会变灰，免得你以为改了就有用。"),
+    "mixing_alpha_mag": Help(
+        "`&MIXING ALPHA_MAG`：**磁化密度**（ρ↑−ρ↓ 那一支）自己用的混合比例。\n"
+        "手册原文：\"Fraction of new magnetization density to be included "
+        "(for spin-polarized calculations, ispin=2 channel after rho_total/m "
+        "transform).\" 默认 −1，意思是**和 ALPHA 相同**。\n"
+        "• 为什么需要单独一个：总密度 ρ↑+ρ↓ 和磁化密度 ρ↑−ρ↓ 的收敛行为经常不一样。"
+        "磁性过渡金属体系里磁矩建立得比电荷慢，用同一个 α 往往把自旋「搅」掉"
+        "——手册建议**磁化通道用更大的值（0.8–1.6）**；\n"
+        "• 只有在**自旋极化**（UKS T，`ispin=2`）时才有这一支密度：UKS 关着时"
+        "这一格是灰的，CP2K 根本不读；\n"
+        "• 也只有在写 `&MIXING` 的场合才有意义（对角化路线、没开 SMEAR）。\n"
+        "典型症状：磁性体系 SCF 收敛到非磁解、或者磁矩在两个值之间来回跳。",
+        section="FORCE_EVAL/DFT/SCF/MIXING", keyword="ALPHA_MAG"),
+    "mixing_beta_mag": Help(
+        "`&MIXING BETA_MAG`：磁化通道的 **Kerker 阻尼**（和 BETA 是同一个东西，"
+        "只是作用在 ρ↑−ρ↓ 上）。默认 −1 = 和 BETA 相同。\n"
+        "手册原文：\"Kerker damping parameter for the magnetization channel "
+        "(for spin-polarized calculations).\"\n"
+        "• 设成 **0** = 关掉磁化通道的 Kerker 筛选。手册给了理由：Kerker 阻尼会把"
+        "长程的磁序压低，过渡金属里形成长程磁序因此被抑制——所以碰到"
+        "\"磁矩总是回到 0\"时，先试 `BETA_MAG 0`；\n"
+        "• 和 `ALPHA_MAG` 一样：只在 UKS 下、且只在写 `&MIXING` 时才生效。",
+        section="FORCE_EVAL/DFT/SCF/MIXING", keyword="BETA_MAG"),
     "scaled_coords": Help(
         "用分数坐标（SCALED）写 &COORD，需要晶胞；没有晶胞时这个框是灰的。\n"
         "什么时候想要它：\n"
@@ -2232,9 +2255,13 @@ HELP: dict[str, Help] = {
         "逐个 k 点检查分量是不是 0/0.5，不是的话只打一条警告就继续算"
         "（\"We could not determine if the symmetry of the system allows real "
         "wavefunctions\"）——不中止，但结果可能是错的。\n"
-        "注意：这和自旋轨道耦合不是一回事。CP2K 的 SOC 是后处理的"
-        "`&FORCE_EVAL/&PROPERTIES/&BANDSTRUCTURE/&SOC`（只支持 GTH 赝势、"
-        "从 Γ 点 SCF 出发的扰动式能带），和这里的 k 点波函数形式没有联动关系。",
+        "**和 UKS / 自旋极化无关**：`UKS T` 只是 α、β 两套波函数（各自仍可以是实数，"
+        "CP2K 的 k 点路径明确支持 `nspins == 2`：`qs_environment.F` 把 β 的 MO 数对齐"
+        "α 的并给一条提示）。需要复数的场合是：k 点本身的 Bloch 相位、自旋轨道耦合"
+        "（那是另一个段 `&FORCE_EVAL/&PROPERTIES/&BANDSTRUCTURE/&SOC`，工具不写）、"
+        "以及复数的外势。全源码里和 REAL 绑定的中止只有一条，是 ADMM2 + k 点 HFX"
+        "（`hfx_admm_utils.F`：\"Only KP-HFX ADMM2 is implemented with REAL "
+        "wavefunctions\"），与自旋无关。",
         section="FORCE_EVAL/DFT/KPOINTS", keyword="WAVEFUNCTIONS"),
     "kpoint_verbose": Help(
         "`&KPOINTS VERBOSE T`：在输出里把生成/约化后的 k 点列表打出来。\n"

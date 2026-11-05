@@ -425,6 +425,23 @@ RULES += tuple(
     )
     for field in ("mixing_alpha", "mixing_nbuffer", "mixing_beta")
 )
+RULES += tuple(
+    Rule(
+        field,
+        lambda spec, structure: _diag(spec, structure) and not spec.smearing
+                and effective_uks(spec),
+        lambda spec, structure: (
+            "`&MIXING` 只写在对角化路线、且没开 SMEAR 时：OT 不用它，"
+            "smearing 路线留给 CP2K 自己的默认混合"
+            if not (_diag(spec, structure) and not spec.smearing) else
+            "UKS 关着（闭壳层）：没有磁化密度可混，这个参数不会被读"
+            "（手册：`ALPHA_MAG`/`BETA_MAG` 只管自旋极化的 ispin=2 通道）"),
+        "FORCE_EVAL/DFT/SCF/MIXING（+ FORCE_EVAL/DFT/UKS）",
+        flags=("--mixing-alpha-mag" if field == "mixing_alpha_mag"
+               else "--mixing-beta-mag",),
+    )
+    for field in ("mixing_alpha_mag", "mixing_beta_mag")
+)
 
 RULES += (
     # ---------------- restarting ----------------

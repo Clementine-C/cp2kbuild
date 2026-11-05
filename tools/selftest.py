@@ -1644,6 +1644,21 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
             task="energy", structure=water, vacuum=12.0, multiplicity=3,
             magnetization={"O": 2.0}),
          ["UKS T", "MULTIPLICITY 3", "MAGNETIZATION 2.0"]),
+        # UKS 不是"要复数"的理由：自旋极化是两套实波函数（CP2K 的 k 点路径
+        # 明确支持 nspins == 2，qs_environment.F 只把 β 的 MO 数对齐 α），
+        # 复不复杂只看 k 点本身能不能为实数（kpoint_initialize）
+        ("UKS + Γ 点：仍是 REAL（复数只由 k 点决定）", dict(
+            task="energy", structure=silicon, uks=True, kpoint_grid=(1, 1, 1)),
+         ["UKS T", "WAVEFUNCTIONS REAL"]),
+        ("UKS + k 网格：COMPLEX（因为网格，不是因为 UKS）", dict(
+            task="energy", structure=silicon, uks=True, kpoint_grid=(4, 4, 4)),
+         ["UKS T", "WAVEFUNCTIONS COMPLEX"]),
+        # 磁化通道自己的混合：ALPHA_MAG / BETA_MAG 只在自旋极化 + 写 &MIXING 时
+        # （对角化路线、没 SMEAR）才有意义
+        ("磁性体系：UKS + 对角化 + 磁化通道混合", dict(
+            task="energy", structure=water, vacuum=12.0, uks=True,
+            scf="DIAGONALIZATION", mixing_alpha_mag=1.2, mixing_beta_mag=0.0),
+         ["UKS T", "&MIXING", "ALPHA_MAG 1.2", "BETA_MAG 0.0"]),
         ("强制 UKS（开壳层单重态）+ 初始磁矩", dict(
             task="energy", structure=water, vacuum=12.0, uks=True,
             magnetization={"O": 1.5, "H": 0.5}),
@@ -1771,13 +1786,15 @@ def part1b_knobs(index, db, quiet: bool = False) -> int:
 
     # ---- UKS 关闭时磁矩不写进输入（CP2K 的闭壳层不读 MAGNETIZATION）------ #
     closed = Spec(task="energy", structure=water, vacuum=12.0,
-                  magnetization={"O": 2.0})
+                  magnetization={"O": 2.0}, scf="DIAGONALIZATION",
+                  mixing_alpha_mag=1.2, mixing_beta_mag=0.0)
     closed_text = render_document(build(closed, index).sections, title="t", notes=[])
-    if "MAGNETIZATION" not in closed_text and "UKS" not in closed_text:
-        print("  ok   闭壳层（没 UKS）时初始磁矩不写进输入")
+    if ("MAGNETIZATION" not in closed_text and "UKS" not in closed_text
+            and "ALPHA_MAG" not in closed_text and "BETA_MAG" not in closed_text):
+        print("  ok   闭壳层（没 UKS）时初始磁矩与磁化通道混合都不写进输入")
     else:
         failures += 1
-        print("  FAIL 闭壳层也写了 MAGNETIZATION / UKS")
+        print("  FAIL 闭壳层也写了 MAGNETIZATION / UKS / ALPHA_MAG / BETA_MAG")
     parsed = parse_magnetizations("Fe=3, O=0.5; n:1")
     if parsed.get("Fe") == 3.0 and parsed.get("O") == 0.5 and parsed.get("N") == 1.0:
         print("  ok   初始磁矩的写法都能读（= : 空格、大小写、分号）")

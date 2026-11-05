@@ -481,6 +481,24 @@ electrons and removes magnetization/2 spin-beta electrons."
 * 写法 `Fe=3, O=0.5`（`=`、`:`、空格、大小写都行，元素符号会规范化）；「读参数」会把
   已有输入里的 `MAGNETIZATION` 读回这一格，生成时逐字节还原。
 
+**磁化通道自己的混合（`&MIXING ALPHA_MAG` / `BETA_MAG`）**：总密度 ρ↑+ρ↓ 和
+磁化密度 ρ↑−ρ↓ 的收敛行为常常不一样，所以 CP2K 给后者单独留了两个参数——
+
+| 关键字 | 手册原文 | 什么时候用 |
+|---|---|---|
+| `ALPHA_MAG` | "Fraction of new magnetization density to be included (for spin-polarized calculations, ispin=2 channel after rho_total/m transform)." 默认 −1 = 与 `ALPHA` 相同 | 磁性过渡金属：手册建议比 `ALPHA` **大**（0.8–1.6），否则磁矩建立得比电荷慢、容易被"搅"掉 |
+| `BETA_MAG` | "Kerker damping parameter for the magnetization channel (for spin-polarized calculations)." 默认 −1 = 与 `BETA` 相同 | 磁矩总是回到 0 时先试 **`BETA_MAG 0`**：手册说 Kerker 阻尼会压低长程磁序 |
+
+反应式启用是**两条**，都在界面上体现（灰色 + 「?」里写明是哪一条不满足）：
+
+1. **要有磁化密度** → 必须 `UKS T`（多重度 > 1 或「强制 UKS」）；闭壳层时两格是灰的，
+   填了也**不写进输入**，命令行 `--mixing-alpha-mag` 会给 `WARN … 不会生效`；
+2. **要有 `&MIXING` 段** → 只在对角化路线、且没开 `SMEAR` 时才写这一段（OT 不用它）——
+   和 `ALPHA`/`BETA`/`NBUFFER` 是同一个条件。
+
+校验器对**手写输入**也会提示：`&MIXING ALPHA_MAG 1.2` 却没开 `UKS` → `mixing-mag-without-uks`
+（"混的是 ρ↑−ρ↓，闭壳层没有这一支"）。
+
 ### 另外补上的常用控件
 
 | 控件 | CP2K 关键字 | 为什么常用 |

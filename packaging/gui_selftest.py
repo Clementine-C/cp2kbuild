@@ -1999,6 +1999,41 @@ def main() -> int:
     generate.w_magnetization.clear()
     pump(120)
 
+    # ---- 磁化通道自己的混合：ALPHA_MAG / BETA_MAG 只在 UKS 下才有意义 ------ #
+    # （CP2K 的 &MIXING 只写在对角化路线，所以这里显式把路线切成 DIAGONALIZATION）
+    generate._set_widget_value(generate.w_scf, "DIAGONALIZATION")
+    pump(120)
+    check(not generate.w_mixing_alpha_mag.isEnabled()
+          and not generate.w_mixing_beta_mag.isEnabled(),
+          "闭壳层时 α_mag / β_mag 都是灰的")
+    generate.w_mixing_alpha_mag.setText("1.2")
+    pump(120)
+    generate.refresh()
+    check("ALPHA_MAG" not in generate.preview.toPlainText(),
+          "闭壳层时即使填了 α_mag 也不写进输入")
+    generate.w_force_uks.setChecked(True)
+    pump(120)
+    generate.refresh()
+    text = generate.preview.toPlainText()
+    check(generate.w_mixing_alpha_mag.isEnabled()
+          and "UKS T" in text and "ALPHA_MAG 1.2" in text,
+          "UKS T 之后 α_mag 可编辑并写进 &MIXING")
+    generate.w_mixing_beta_mag.setText("0")
+    pump(120)
+    generate.refresh()
+    check("BETA_MAG 0.0" in generate.preview.toPlainText(),
+          "β_mag 0（关掉磁化通道的 Kerker）也写得出去")
+    compare("UKS + 对角化 + 磁化通道混合",
+            ["new", "--task", "energy", "--structure", WATER, "--vacuum", "12",
+             "--uks", "--scf", "DIAGONALIZATION",
+             "--mixing-alpha-mag", "1.2", "--mixing-beta-mag", "0",
+             "--stdout"])
+    generate.w_mixing_alpha_mag.clear()
+    generate.w_mixing_beta_mag.clear()
+    generate.w_force_uks.setChecked(False)
+    generate._set_widget_value(generate.w_scf, "auto")
+    pump(120)
+
     # cubes + fixed atoms + EPS_DEFAULT + extrapolation
     reset_gui()
     generate.load_from_path(SILICON)

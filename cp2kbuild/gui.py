@@ -54,8 +54,8 @@ from .cutoffkit import (DEFAULT_CUTOFFS, DEFAULT_FIXED_REL_CUTOFF,
 from .recipes import (COORD_SUFFIX_FORMAT, EXT_RESTART_TAKES, MM_ROUTES, TASKS,
                       BuildResult,
                       MmLennardJones, MmMolecule, Spec, build, effective_route,
-                      is_classical, kpoint_wavefunction_choice, lennard_jones_pairs,
-                      mm_route, parse_magnetizations,
+                      effective_uks, is_classical, kpoint_wavefunction_choice,
+                      lennard_jones_pairs, mm_route, parse_magnetizations,
                       poisson_solver_note, poisson_solvers_for, prepare_structure,
                       reads_as_cp2k_input, restart_summary, suggest_kpoint_grid)
 from .structures import Structure, parse_cell_text, read_structure
@@ -1961,6 +1961,8 @@ class GenerateTab(QWidget):
             "mixing_alpha": self.w_mixing_alpha,
             "mixing_nbuffer": self.w_mixing_nbuffer,
             "mixing_beta": self.w_mixing_beta,
+            "mixing_alpha_mag": self.w_mixing_alpha_mag,
+            "mixing_beta_mag": self.w_mixing_beta_mag,
             "scf_guess": self.w_scf_guess,
             "wfn_restart_print": self.w_wfn_print,
             "charge": self.w_charge,
@@ -3551,18 +3553,25 @@ class GenerateTab(QWidget):
             return ""
         chosen = (spec.kpoint_wavefunctions or "").strip().upper()
         effective, provable = kpoint_wavefunction_choice(spec, structure)
+        # spin polarisation is *not* one of the criteria: UKS means two real
+        # wavefunction sets (alpha/beta), the complex ones come from the k-point
+        # phases (and from SOC, which is a different block entirely)
+        spin_note = ("　（UKS 只是多一个自旋通道，各自仍可以是实波函数，"
+                     "不改变这里的判据）" if effective_uks(spec) else "")
         if chosen == "REAL" and not provable:
             return ("⚠ 波函数形式 **REAL** 是你选的，但这个 k 点集只有分量 0/0.5 "
                     "的特殊点才能证明实波函数成立；CP2K 证明不了会打警告"
                     "（`kpoint_initialize`），结果可能不对 —— 换回「自动」或选 "
-                    "COMPLEX 更稳。")
+                    "COMPLEX 更稳。" + spin_note)
         if chosen:
-            return f"波函数形式：{chosen}（你选的，写 `WAVEFUNCTIONS {chosen}`）。"
+            return (f"波函数形式：{chosen}（你选的，写 `WAVEFUNCTIONS {chosen}`）。"
+                    + spin_note)
         if effective == "REAL":
             return ("波函数形式：自动 → 写 `WAVEFUNCTIONS REAL`"
-                    "（这个 k 点集是 Γ 点/特殊点，实波函数成立）。")
+                    "（这个 k 点集是 Γ 点/特殊点，实波函数成立）。" + spin_note)
         return ("波函数形式：自动 → 写 `WAVEFUNCTIONS COMPLEX`"
-                "（网格 k 点证明不了实波函数；COMPLEX 也是 CP2K 自己的默认）。")
+                "（网格 k 点证明不了实波函数；COMPLEX 也是 CP2K 自己的默认）。"
+                + spin_note)
 
     def _kpoint_points(self) -> list[tuple[float, float, float, float]]:
         out: list[tuple[float, float, float, float]] = []
@@ -3671,6 +3680,12 @@ class GenerateTab(QWidget):
         self.w_mixing_beta.setPlaceholderText("留空不写（CP2K 默认）")
         self.w_mixing_method = QComboBox()
         self.w_mixing_method.addItems(MIXING_METHODS)
+        # the magnetization channel's own mixing (only read by a UKS run):
+        # empty = don't write, i.e. CP2K's "same as ALPHA/BETA"
+        self.w_mixing_alpha_mag = QLineEdit()
+        self.w_mixing_alpha_mag.setPlaceholderText("留空 = 同 α（磁性体系 0.8–1.6）")
+        self.w_mixing_beta_mag = QLineEdit()
+        self.w_mixing_beta_mag.setPlaceholderText("留空 = 同 β；0 = 关掉磁化通道的 Kerker")
         self.w_smear_method = QComboBox()
         self.w_smear_method.addItems(SMEAR_METHODS)
         # ---- SCF route details (OT / diagonalisation) ----
@@ -3796,6 +3811,26 @@ class GenerateTab(QWidget):
         mixing_holder2 = QWidget()
         mixing_holder2.setLayout(mixing_row2)
         form.addRow("", mixing_holder2)
+
+        # the magnetization channel (UKS only): α_mag / β_mag
+        mag_row = QHBoxLayout()
+        mag_row.setContentsMargins(0, 0, 0, 0)
+        mag_holder = QWidget()
+        mag_holder.setLayout(mag_row)
+        mag_label = QWidget()
+        mag_label_box = QHBoxLayout(mag_label)
+        mag_label_box.setContentsMargins(0, 0, 0, 0)
+        mag_label_box.setSpacing(5)
+        mag_label_box.addWidget(QLabel("磁化通道"))
+        mag_label_box.addWidget(HelpBadge(HELP["mixing_alpha_mag"]))
+        mag_label_box.addWidget(HelpBadge(HELP["mixing_beta_mag"]))
+        mag_label_box.addStretch(1)
+        mag_row.addWidget(QLabel("α_mag"))
+        mag_row.addWidget(self.w_mixing_alpha_mag, 1)
+        mag_row.addSpacing(8)
+        mag_row.addWidget(QLabel("β_mag"))
+        mag_row.addWidget(self.w_mixing_beta_mag, 1)
+        form.addRow(mag_label, mag_holder)
 
         form_row(form, "basis", "强制基组", self.w_basis)
         form_row(form, "basis_file", "基组文件", self.w_basis_file)
@@ -5280,6 +5315,8 @@ class GenerateTab(QWidget):
         self.w_mixing_alpha.setValue(0.4)
         self.w_mixing_nbuffer.setValue(8)
         self.w_mixing_beta.clear()
+        self.w_mixing_alpha_mag.clear()
+        self.w_mixing_beta_mag.clear()
         self.w_mixing_method.setCurrentText("BROYDEN_MIXING")
         self.w_smear_method.setCurrentText("FERMI_DIRAC")
 
@@ -5628,6 +5665,10 @@ class GenerateTab(QWidget):
             mixing_nbuffer=self.w_mixing_nbuffer.value(),
             mixing_beta=_optional_float(self.w_mixing_beta.text(),
                                         self.w_mixing_beta),
+            mixing_alpha_mag=_optional_float(self.w_mixing_alpha_mag.text(),
+                                             self.w_mixing_alpha_mag),
+            mixing_beta_mag=_optional_float(self.w_mixing_beta_mag.text(),
+                                            self.w_mixing_beta_mag),
             scaled_coords=self.w_scaled_coords.isChecked(),
             h_to_d=self.w_h_to_d.isChecked(),
             poisson_solver=self.w_poisson.currentData(),

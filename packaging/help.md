@@ -2,7 +2,7 @@
 
 鼠标悬浮在界面上任意「?」上就会显示下面这些内容；带手册链接的「?」还可以点击直接打开对应的手册页。
 
-共 209 条。
+共 211 条。
 
 ## 结构
 
@@ -790,6 +790,30 @@ SCF 的电荷混合方式与参数。工具默认写 BROYDEN_MIXING：
 • **缓冲**（NBUFFER，默认 8）——保留多少历史步做 Broyden 更新。体系大、需要更多历史时加到 10–20；
 • **β**（BETA）——Kerker 阻尼，留空则不写。金属体系常常需要（试 0.5–1.5）。
 注意：只有纯对角化路线会写 &MIXING。OT 不用它；开了 SMEAR 时工具也不写（CP2K 自己的默认对金属更合适）——这时候这两个框会变灰，免得你以为改了就有用。
+
+## mixing_alpha_mag
+
+*标识*：`mixing_alpha_mag`
+
+`&MIXING ALPHA_MAG`：**磁化密度**（ρ↑−ρ↓ 那一支）自己用的混合比例。
+手册原文："Fraction of new magnetization density to be included (for spin-polarized calculations, ispin=2 channel after rho_total/m transform)." 默认 −1，意思是**和 ALPHA 相同**。
+• 为什么需要单独一个：总密度 ρ↑+ρ↓ 和磁化密度 ρ↑−ρ↓ 的收敛行为经常不一样。磁性过渡金属体系里磁矩建立得比电荷慢，用同一个 α 往往把自旋「搅」掉——手册建议**磁化通道用更大的值（0.8–1.6）**；
+• 只有在**自旋极化**（UKS T，`ispin=2`）时才有这一支密度：UKS 关着时这一格是灰的，CP2K 根本不读；
+• 也只有在写 `&MIXING` 的场合才有意义（对角化路线、没开 SMEAR）。
+典型症状：磁性体系 SCF 收敛到非磁解、或者磁矩在两个值之间来回跳。
+
+手册：<https://manual.cp2k.org/cp2k-2026_2-branch/CP2K_INPUT/FORCE_EVAL/DFT/SCF/MIXING.html#CP2K_INPUT.FORCE_EVAL.DFT.SCF.MIXING.ALPHA_MAG>
+
+## mixing_beta_mag
+
+*标识*：`mixing_beta_mag`
+
+`&MIXING BETA_MAG`：磁化通道的 **Kerker 阻尼**（和 BETA 是同一个东西，只是作用在 ρ↑−ρ↓ 上）。默认 −1 = 和 BETA 相同。
+手册原文："Kerker damping parameter for the magnetization channel (for spin-polarized calculations)."
+• 设成 **0** = 关掉磁化通道的 Kerker 筛选。手册给了理由：Kerker 阻尼会把长程的磁序压低，过渡金属里形成长程磁序因此被抑制——所以碰到"磁矩总是回到 0"时，先试 `BETA_MAG 0`；
+• 和 `ALPHA_MAG` 一样：只在 UKS 下、且只在写 `&MIXING` 时才生效。
+
+手册：<https://manual.cp2k.org/cp2k-2026_2-branch/CP2K_INPUT/FORCE_EVAL/DFT/SCF/MIXING.html#CP2K_INPUT.FORCE_EVAL.DFT.SCF.MIXING.BETA_MAG>
 
 ## scaled_coords
 
@@ -2195,7 +2219,7 @@ CP2K 的 `FULL_GRID` 默认是 F。
 • **REAL**——省一半内存和时间，但只有实 Bloch 相位才成立（手册："REAL wavefunctions can only represent Gamma or special k-points and symmetry operations with real Bloch phases"）；
 • **COMPLEX**——CP2K 自己的默认（`default_i_val=use_complex_wfn`），一般 k 点网格必须用它（手册："Use COMPLEX for general atomic k-point symmetries with nontrivial phases"）。
 为什么不能随便选 REAL：CP2K 在 `kpoint_initialize`（`kpoint_methods.F`）里逐个 k 点检查分量是不是 0/0.5，不是的话只打一条警告就继续算（"We could not determine if the symmetry of the system allows real wavefunctions"）——不中止，但结果可能是错的。
-注意：这和自旋轨道耦合不是一回事。CP2K 的 SOC 是后处理的`&FORCE_EVAL/&PROPERTIES/&BANDSTRUCTURE/&SOC`（只支持 GTH 赝势、从 Γ 点 SCF 出发的扰动式能带），和这里的 k 点波函数形式没有联动关系。
+**和 UKS / 自旋极化无关**：`UKS T` 只是 α、β 两套波函数（各自仍可以是实数，CP2K 的 k 点路径明确支持 `nspins == 2`：`qs_environment.F` 把 β 的 MO 数对齐α 的并给一条提示）。需要复数的场合是：k 点本身的 Bloch 相位、自旋轨道耦合（那是另一个段 `&FORCE_EVAL/&PROPERTIES/&BANDSTRUCTURE/&SOC`，工具不写）、以及复数的外势。全源码里和 REAL 绑定的中止只有一条，是 ADMM2 + k 点 HFX（`hfx_admm_utils.F`："Only KP-HFX ADMM2 is implemented with REAL wavefunctions"），与自旋无关。
 
 手册：<https://manual.cp2k.org/cp2k-2026_2-branch/CP2K_INPUT/FORCE_EVAL/DFT/KPOINTS.html#CP2K_INPUT.FORCE_EVAL.DFT.KPOINTS.WAVEFUNCTIONS>
 
